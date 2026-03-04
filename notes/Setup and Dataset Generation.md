@@ -6,23 +6,22 @@
 
 ---
 
-## System Specifications
+## System Requirements
 
-### Hardware
+### Minimum Hardware
 
-- **CPU:** Intel i9-13980HX (32 cores @ 5.4GHz)
-- **GPU:** NVIDIA RTX 2000 Ada Generation Laptop GPU (8GB VRAM)
-- **CUDA:** Version 12.7
-- **RAM:** 128GB
-- **Storage:** 163GB available
-- **OS:** NixOS 24.11
+- **GPU:** 8GB VRAM (for QLoRA training)
+- **CUDA:** 12.1+ support
+- **RAM:** 16GB (32GB+ recommended for dataset generation)
+- **Storage:** 20GB available
+- **OS:** Linux (NixOS recommended for reproducibility)
 
-### Why This Hardware Matters
+### Development Environment
 
-- 8GB VRAM: Perfect for QLoRA training of 0.6B model
-- CUDA 12.7: Latest PyTorch support
-- 128GB RAM: Can handle large datasets entirely in memory
-- RISC-V cross-compilation: Available via Nix packages
+- 8GB VRAM GPU for QLoRA training of 0.6B model
+- Modern CUDA support for PyTorch
+- Sufficient RAM for handling datasets in memory
+- RISC-V cross-compilation tools via Nix
 
 ---
 
