@@ -26,6 +26,8 @@ wandb/
 logs/
 runs/
 install.log
+*.log
+unsloth_compiled_cache/
 
 # IDE
 .vscode/

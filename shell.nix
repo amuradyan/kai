@@ -10,8 +10,8 @@ let
 in
 pkgs.mkShell {
   buildInputs = with pkgs; [
-    # Python
-    python312
+    # Python with development headers
+    python312Full
     python312Packages.pip
     python312Packages.virtualenv
 
@@ -20,6 +20,7 @@ pkgs.mkShell {
     git
     cmake
     pkg-config
+    zlib
 
     # Node.js (using LTS version with compatible dependencies)
     pkgs-stable.nodejs_18
@@ -44,14 +45,24 @@ pkgs.mkShell {
     # Set CUDA paths for PyTorch
     export CUDA_HOME=${cudaPackages.cudatoolkit}
     export CUDA_PATH=${cudaPackages.cudatoolkit}
-    export LD_LIBRARY_PATH=${pkgs.gcc14.cc.lib}/lib:${cudaPackages.cudatoolkit}/lib:${cudaPackages.cudnn}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    export LD_LIBRARY_PATH=${pkgs.gcc14.cc.lib}/lib:${cudaPackages.cudatoolkit}/lib:${cudaPackages.cudnn}/lib:${pkgs.zlib}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
     export EXTRA_LDFLAGS="-L${pkgs.gcc14.cc.lib}/lib"
+
+    # Python development headers for Triton compilation
+    export C_INCLUDE_PATH=${pkgs.python312Full}/include/python3.12:''${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}
+    export CPLUS_INCLUDE_PATH=${pkgs.python312Full}/include/python3.12:''${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}
+
+    # Triton + NixOS compatibility
+    export TRITON_LIBCUDA_PATH=/run/opengl-driver/lib
+    export LIBRARY_PATH=/run/opengl-driver/lib:''${LIBRARY_PATH:+:$LIBRARY_PATH}
 
     # Make RISC-V toolchain accessible
     export RISCV_GCC=$(which riscv64-unknown-linux-gnu-gcc)
 
     echo "Nix environment loaded"
     echo "CUDA: $CUDA_HOME"
+    echo "Python headers: ${pkgs.python312Full}/include/python3.12"
+    echo "TRITON_LIBCUDA_PATH: $TRITON_LIBCUDA_PATH"
     echo "RISC-V GCC: $RISCV_GCC"
   '';
 }
