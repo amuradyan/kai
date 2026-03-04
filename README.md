@@ -28,8 +28,12 @@ python scripts/download_model.py &
 # 3. Generate training dataset (2,500 examples)
 python scripts/dataset_generation/generate_synthetic_dataset.py
 
-# 4. Train the model (coming soon)
-# python scripts/train.py
+# 4. Format dataset for training
+python scripts/preprocessing/format_dataset.py
+
+# 5. Train the model
+python scripts/train.py --test  # Test mode: 10 examples, 10 steps
+python scripts/train.py         # Full training: 2,500 examples, 3 epochs
 ```
 
 The environment automatically activates when you `cd` into the directory—no manual setup needed after the first time.
@@ -121,15 +125,29 @@ Randomly samples 10 binaries from the dataset and executes them on QEMU to verif
 
 ### Train the Model
 
-*(Coming soon)*
+Fine-tune Qwen3-0.6B using QLoRA to generate RISC-V binaries from prompts.
 
-Fine-tune Qwen3-0.6B using QLoRA to generate RISC-V binaries from prompts:
+**First, format the dataset:**
+
+```bash
+python scripts/preprocessing/format_dataset.py
+```
+
+This converts the JSONL dataset to Hugging Face format with instruction/response pairs.
+
+**Run a quick test (10 examples, ~10 seconds):**
+
+```bash
+python scripts/train.py --test
+```
+
+**Run full training (2,500 examples, ~2-3 hours):**
 
 ```bash
 python scripts/train.py
 ```
 
-Training happens on a single GPU using Unsloth's optimizations, fitting comfortably in 8GB VRAM.
+Training happens on a single GPU using Unsloth's optimizations, fitting comfortably in 8GB VRAM. The model checkpoint is saved to `models/checkpoints/qwen3-0.6b-lora/`.
 
 ### Generate Binaries
 
@@ -159,8 +177,11 @@ kai/
 │   ├── dataset_generation/
 │   │   ├── generate_synthetic_dataset.py
 │   │   └── verify_dataset.py
+│   ├── preprocessing/
+│   │   └── format_dataset.py
 │   ├── download_model.py
 │   ├── install_deps.sh
+│   ├── train.py
 │   └── verify_binaries_qemu.py
 │
 ├── configs/              # Training configurations (future)
@@ -215,7 +236,7 @@ See `notes/Setup and Dataset Generation.md` for detailed technical log.
 - ✅ Base model downloaded (Qwen3-0.6B)
 - ✅ Dataset generation pipeline (2,500 examples)
 - ✅ Binary validation on QEMU
-- 🚧 Training pipeline (in progress)
+- ✅ Training pipeline (QLoRA with Unsloth)
 - 🚧 Inference and evaluation (planned)
 
 ---

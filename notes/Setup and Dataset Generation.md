@@ -430,35 +430,40 @@ kai/
 
 ---
 
-## Next Steps (Not Yet Implemented)
+## Completed Implementation
 
-The foundation is complete. Remaining work:
+Training pipeline now functional:
 
-1. **Data Preprocessing**
-   - Convert JSONL → Hugging Face Dataset
-   - Format for instruction tuning
+1. **Data Preprocessing** ✅
+   - `scripts/preprocessing/format_dataset.py` converts JSONL → Hugging Face Dataset
+   - Formatted for instruction tuning with prompt/response pairs
    - Train/validation split (90/10)
+   - Saved to `dataset/processed/training_dataset_hf/`
 
-2. **Training Script**
-   - Unsloth configuration
-   - QLoRA hyperparameters
-   - WandB integration
-   - Checkpoint management
+2. **Training Script** ✅
+   - `scripts/train.py` with Unsloth configuration
+   - QLoRA hyperparameters: 4-bit quantization, LoRA rank 16, alpha 32
+   - Test mode (10 examples) and full mode (2,500 examples)
+   - Checkpoint management to `models/checkpoints/`
+   - VRAM-efficient: ~0.6GB loaded, 3.2GB peak
 
-3. **Training Execution**
-   - Initial training run
-   - Loss monitoring
-   - Validation metrics
+3. **NixOS/Triton Compatibility** ✅
+   - Fixed Python.h compilation errors (python312Full)
+   - Fixed ptxas discovery (TRITON_PTXAS_PATH)
+   - All environment variables in `.envrc`
+   - See `notes/Triton NixOS issue.md`
+
+## Next Steps (Not Yet Implemented)
 
 4. **Inference & Evaluation**
    - Generate binaries from prompts
-   - Execute and validate
-   - Measure accuracy
+   - Execute and validate on QEMU
+   - Measure accuracy (exact match, execution success)
 
 5. **Iteration**
-   - Expand dataset
-   - Add more complexity levels
-   - Multi-architecture support
+   - Expand dataset with more complexity levels
+   - Add function calls and control flow
+   - Multi-architecture support (x86-64, ARM)
 
 ---
 
@@ -503,8 +508,16 @@ The foundation is complete. Remaining work:
 
 ---
 
-**Status:** Foundation complete, ready for training implementation.
+**Status:** Training pipeline complete and functional. ✅
 
 **Total Setup Time:** ~2 hours (including research, setup, dataset generation)
 
-**Current State:** Production-ready dataset of 2,496 examples, validated and verified, awaiting training pipeline implementation.
+**Total Implementation Time:** ~4 hours (dataset formatting, training script, NixOS/Triton fixes)
+
+**Current State:**
+- Production-ready dataset of 2,496 examples, validated and verified ✅
+- Training pipeline implemented with test mode ✅
+- Triton compilation issues resolved on NixOS ✅
+- Ready for full-scale training runs ✅
+
+See `notes/Triton NixOS issue.md` for details on Python.h and ptxas compilation fixes.
