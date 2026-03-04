@@ -20,23 +20,32 @@ Get from zero to a trained model in four steps:
 ```bash
 # 1. Set up the environment (first time only)
 direnv allow .
-./scripts/install_deps.sh
+./scripts/setup/install_dependencies.sh
 
 # 2. Download the base model (runs in background)
-python scripts/download_model.py &
+python scripts/setup/download_base_model.py &
 
 # 3. Generate training dataset (2,500 examples)
-python scripts/dataset_generation/generate_synthetic_dataset.py
+python scripts/dataset/generate_synthetic_dataset.py
 
 # 4. Format dataset for training
-python scripts/preprocessing/format_dataset.py
+python scripts/dataset/format_for_training.py
 
 # 5. Train the model
-python scripts/train.py --test  # Test mode: 10 examples, 10 steps
-python scripts/train.py         # Full training: 2,500 examples, 3 epochs
+./kai train --test  # Test mode: 10 examples, 10 steps
+./kai train         # Full training: 2,500 examples, 3 epochs
 ```
 
 The environment automatically activates when you `cd` into the directory—no manual setup needed after the first time.
+
+**Using the Kai CLI:**
+
+```bash
+./kai train --test              # Quick training test
+./kai train                     # Full training
+./kai generate --prompt "..."   # Generate binaries (after training)
+./kai help                      # Show help
+```
 
 ## Setup
 
@@ -60,7 +69,7 @@ This command triggers everything:
 **2. Install Python dependencies:**
 
 ```bash
-./scripts/install_deps.sh
+./scripts/setup/install_dependencies.sh
 ```
 
 This installs the ML stack: PyTorch with CUDA 12.1, Transformers, Unsloth (for efficient QLoRA training), and binary analysis tools like Capstone and LIEF.
@@ -68,7 +77,7 @@ This installs the ML stack: PyTorch with CUDA 12.1, Transformers, Unsloth (for e
 **3. Download the base model:**
 
 ```bash
-python scripts/download_model.py
+python scripts/setup/download_base_model.py
 ```
 
 Downloads Qwen3-0.6B from Hugging Face (~1.5GB). This can run in the background while you work on other steps.
@@ -94,7 +103,7 @@ Everything you need is in scope. No activation scripts, no PATH juggling.
 The model learns from pairs: natural language prompts and their corresponding RISC-V binaries. We generate these synthetically by creating simple C programs and compiling them.
 
 ```bash
-python scripts/dataset_generation/generate_synthetic_dataset.py
+python scripts/dataset/generate_synthetic_dataset.py
 ```
 
 This creates 2,500 examples across five complexity levels:
@@ -110,7 +119,7 @@ Each example is compiled to RISC-V with `riscv64-unknown-linux-gnu-gcc`, produci
 **Verify the dataset:**
 
 ```bash
-python scripts/dataset_generation/verify_dataset.py
+python scripts/dataset/verify_dataset.py
 ```
 
 Checks for duplicate prompts, source code conflicts, and data format validity.
@@ -118,7 +127,7 @@ Checks for duplicate prompts, source code conflicts, and data format validity.
 **Test binary execution:**
 
 ```bash
-python scripts/verify_binaries_qemu.py -n 10
+python scripts/dataset/verify_binaries_qemu.py -n 10
 ```
 
 Randomly samples 10 binaries from the dataset and executes them on QEMU to verify they produce correct return codes.
@@ -130,7 +139,7 @@ Fine-tune Qwen3-0.6B using QLoRA to generate RISC-V binaries from prompts.
 **First, format the dataset:**
 
 ```bash
-python scripts/preprocessing/format_dataset.py
+python scripts/dataset/format_for_training.py
 ```
 
 This converts the JSONL dataset to Hugging Face format with instruction/response pairs.
@@ -138,28 +147,31 @@ This converts the JSONL dataset to Hugging Face format with instruction/response
 **Run a quick test (10 examples, ~10 seconds):**
 
 ```bash
-python scripts/train.py --test
+./kai train --test
 ```
 
 **Run full training (2,500 examples, ~2-3 hours):**
 
 ```bash
-python scripts/train.py
+./kai train
 ```
 
 Training happens on a single GPU using Unsloth's optimizations, fitting comfortably in 8GB VRAM. The model checkpoint is saved to `models/checkpoints/qwen3-0.6b-lora/`.
 
 ### Generate Binaries
 
-*(Coming soon)*
-
 Once trained, generate executable binaries from natural language:
 
 ```bash
-python scripts/generate.py --prompt "write a program that returns the sum of 10 and 20"
+./kai generate --prompt "Write a C program that returns the sum of 10 and 20" --output my_binary
 ```
 
-The model outputs hex-encoded RISC-V machine code, which can be written to a file and executed on QEMU or real RISC-V hardware.
+The model outputs hex-encoded RISC-V machine code, which is converted to an executable binary file:
+
+```bash
+qemu-riscv64 my_binary
+echo $?  # Should output 30
+```
 
 ## Project Structure
 
@@ -174,15 +186,20 @@ kai/
 │   └── checkpoints/      # Training checkpoints (future)
 │
 ├── scripts/
-│   ├── dataset_generation/
+│   ├── setup/
+│   │   ├── download_base_model.py
+│   │   └── install_dependencies.sh
+│   ├── dataset/
 │   │   ├── generate_synthetic_dataset.py
-│   │   └── verify_dataset.py
-│   ├── preprocessing/
-│   │   └── format_dataset.py
-│   ├── download_model.py
-│   ├── install_deps.sh
-│   ├── train.py
-│   └── verify_binaries_qemu.py
+│   │   ├── verify_dataset.py
+│   │   ├── format_for_training.py
+│   │   ├── test_binary.py
+│   │   └── verify_binaries_qemu.py
+│   ├── training/
+│   │   └── train_model.py
+│   └── generation/
+│       ├── generate_binary.py
+│       └── test_generation.sh
 │
 ├── configs/              # Training configurations (future)
 ├── evaluation/           # Evaluation scripts (future)

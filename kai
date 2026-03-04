@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Kai - CLI wrapper for training and generation
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<EOF
+Kai - Train LLMs to generate RISC-V binaries from prompts
+
+Usage:
+    kai <command> [options]
+
+Commands:
+    train       Train the model
+    generate    Generate RISC-V binaries from prompts
+    help        Show this help message
+
+Examples:
+    kai train --test                    # Quick training test
+    kai train                           # Full training
+    kai generate --prompt "return 42"   # Generate binary
+
+For command-specific help:
+    kai train --help
+    kai generate --help
+EOF
+}
+
+case "${1:-}" in
+    train)
+        shift
+        exec python "$SCRIPT_DIR/scripts/training/train_model.py" "$@"
+        ;;
+    generate)
+        shift
+        exec python "$SCRIPT_DIR/scripts/generation/generate_binary.py" "$@"
+        ;;
+    help|--help|-h|"")
+        usage
+        exit 0
+        ;;
+    *)
+        echo "Error: Unknown command '$1'"
+        echo ""
+        usage
+        exit 1
+        ;;
+esac
