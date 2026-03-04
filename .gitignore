@@ -1,0 +1,42 @@
+# Virtual environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Direnv
+.direnv/
+.envrc.cache
+
+# Models and datasets (large files)
+models/base/
+models/checkpoints/
+dataset/raw/
+dataset/processed/
+*.bin
+*.safetensors
+*.pt
+*.pth
+
+# Training outputs
+wandb/
+logs/
+runs/
+install.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# User instructions (not tracked per CLAUDE.md)
+CLAUDE.md
