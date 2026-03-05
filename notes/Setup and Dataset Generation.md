@@ -32,10 +32,12 @@
 **Base Model:** Qwen3-0.6B
 
 - 600M parameters (440M non-embedding)
-- 32,768 token context window
+- 32,768 token max context (training uses 2048 for efficiency)
 - 28 transformer layers with Grouped Query Attention
 - bfloat16 precision
 - Built-in "thinking mode" for reasoning tasks
+
+**Note:** While the model supports 32K context, we use 2048 during training as our minimal static binaries (~500 bytes = ~1000 hex chars) fit comfortably in this window.
 
 **Target Architecture:** RISC-V (rv64g)
 
@@ -147,72 +149,55 @@ Modified `generation_config.json` for binary code generation:
 
 ## Phase 3: Dataset Generation Strategy
 
-### Dataset Requirements Analysis
+### Dataset Approach
 
-Based on research into LLM binary generation:
+**Our Approach:** Generate 10,000 minimal static binaries for simple return values (1-10000).
 
-- LLM4Decompile: Trained on 4B tokens (assembly + C pairs)
-- RevEng.AI: Used 33M function pairs
-- For 0.6B model: 10K-50K examples is reasonable
+**Rationale:**
+- Start with simplest possible task (return a value)
+- Validate that model can learn binary generation
+- Minimal binaries (~500 bytes) fit in 2048 token window
+- Language-agnostic prompts from the start
+- Once validated, can expand to more complex programs
 
-**Our Approach:** Start with 2,500 synthetic examples across 5 complexity levels.
+### Returns Dataset
 
-### Synthetic Data Categories
+**Dataset:** 10,000 examples of simple return statements
 
-**1. Constants (500 examples)**
+**Characteristics:**
+- Prompts: "Write a program that returns N" where N ∈ [1, 10000]
+- Language-agnostic (no mention of C or any language)
+- Minimal static binaries using direct syscalls
+- Average binary size: ~500 bytes (vs 8KB with dynamic linking)
+- No libc dependency, just RISC-V exit syscall
 
-- Simple return statements: `int main() { return 42; }`
-- Value range: 0-10,000
-- Tests basic code generation
-
-**2. Arithmetic (500 examples)**
-
-- Binary operations: `int main() { return 5 + 3; }`
-- Operations: +, -, *, /, %
-- Operand ranges: a∈[1,1000], b∈[1,500]
-- Tests expression evaluation
-
-**3. Variables (500 examples)**
-
-- Variable assignment: `int main() { int x = 100; return x; }`
-- Variable names: x, y, z, num, val, result
-- Value range: 0-10,000
-- Tests memory operations
-
-**4. Conditionals (500 examples)**
-
-- If/else statements: `if (a > b) return 1; else return 0;`
-- Comparison operators: >, <, >=, <=, ==, !=
-- Operand ranges: a,b∈[0,200]
-- Return value ranges: true∈[1,100], false∈[101,200]
-- Tests control flow
-
-**5. Loops (496 examples, 4 compilation failures)**
-
-- For loops with accumulation
-- Range: summing integers 0 to N-1 where N∈[5,10000]
-- Tests iteration and state management
+**Why start here:**
+- Simplest possible binary generation task
+- Validates end-to-end pipeline
+- Tests model's ability to encode values in binary
+- Establishes baseline before adding complexity
 
 ### Dataset Generation Implementation
 
-Created `scripts/dataset_generation/generate_synthetic_dataset.py`:
+Created `scripts/dataset/generate_returns_dataset.py`:
 
 **Key Features:**
 
-1. **Pre-generation of unique combinations**
-   - Uses `random.sample()` for guaranteed uniqueness
-   - No wasted compilations from duplicates
-   - Efficient: compiles exactly once per unique program
-
-2. **Deduplication system**
-   - Tracks (prompt, source) tuples
-   - Prevents same prompt mapping to different code
-   - Ensures training data consistency
-
-3. **RISC-V compilation**
+1. **Minimal static binary compilation**
    - Compiler: `riscv64-unknown-linux-gnu-gcc`
-   - Flags: `-O0 -march=rv64g -mabi=lp64d -static -nostdlib -e main`
-   - Generates both binary and assembly for each example
+   - Flags: `-static -nostdlib -ffreestanding -O2 -Wl,--strip-all`
+   - Custom `_start` with direct syscalls (no libc)
+   - Result: ~500 byte binaries (see `docs/Minimal Static Binaries.md`)
+
+2. **Direct syscall approach**
+   - Uses RISC-V exit syscall (number 93)
+   - No dynamic linking, no PLT/GOT overhead
+   - 95% code, 5% ELF header
+
+3. **Progress tracking**
+   - Uses `tqdm` for real-time progress bar
+   - Shows generation speed and ETA
+   - Generates both binary and assembly for verification
 
 4. **Data format**
    Each example stored as JSON with:
@@ -231,45 +216,47 @@ Created `scripts/dataset_generation/generate_synthetic_dataset.py`:
 
 ### Dataset Generation Results
 
-**Output:** `dataset/processed/synthetic_dataset.jsonl`
+**Output:** `dataset/processed/returns_dataset.jsonl`
 
 **Statistics:**
 
-- Total examples: 2,496 (99.8% success rate)
-- File size: 9.9 MB
-- Average binary size: ~1,580 bytes
+- Total examples: 10,000 (100% success rate)
+- File size: 21 MB
+- Average binary size: ~500 bytes per binary
+- Hex output: ~1000 characters per binary
 - Format: JSON Lines (one example per line)
 
-**Category Breakdown:**
-
-- Constants: 500 ✓
-- Arithmetic: 500 ✓
-- Variables: 500 ✓
-- Conditionals: 500 ✓
-- Loops: 496 (4 compilation failures)
+**Coverage:**
+- Return values: 1 through 10,000
+- All binaries tested with QEMU
+- Exit codes validated (modulo 256 for values > 255)
 
 **Quality Metrics:**
 
-- 2,496/2,496 unique prompts (100%)
-- 2,496/2,496 unique source codes (100%)
-- Zero prompt→source conflicts
+- 10,000/10,000 unique prompts (100%)
+- 10,000/10,000 unique binaries (100%)
+- All binaries execute correctly on QEMU
 - All required fields present in every example
 
 ### Dataset Verification
 
-Created `scripts/dataset_generation/verify_dataset.py` for automated quality checks:
+Created `scripts/dataset/test_minimal_binaries.py` for automated quality checks:
 
 **Verification Tests:**
 
-1. Prompt uniqueness check
-2. Source code uniqueness check
-3. Prompt→source mapping validation (critical for training)
-4. Category distribution analysis
-5. Data format validation
-6. Binary size statistics
-7. Sample inspection
+1. Binary execution on QEMU
+2. Return code validation (with modulo 256 for large values)
+3. Random sampling or full dataset testing (`--all` flag)
+4. Progress tracking with timing statistics
 
-**Result:** All checks passed ✓
+**Test Script Usage:**
+```bash
+python scripts/dataset/test_minimal_binaries.py        # Test 50 random samples
+python scripts/dataset/test_minimal_binaries.py -n 100 # Test 100 samples
+python scripts/dataset/test_minimal_binaries.py --all  # Test all 10,000
+```
+
+**Result:** All binaries execute correctly ✓
 
 ---
 
@@ -279,17 +266,33 @@ Created `scripts/dataset_generation/verify_dataset.py` for automated quality che
 
 Added QEMU to `shell.nix` for running RISC-V binaries on x86-64 host.
 
-Created `scripts/test_binary.py` for validation:
+### Validation Scripts
+
+**1. `scripts/dataset/test_minimal_binaries.py`** - Primary testing tool
 
 **Features:**
-
-- Compiles C code to RISC-V with `-static` linking
+- Tests pre-generated binaries from dataset
 - Executes with `qemu-riscv64`
-- Captures return code
-- Validates against expected output
-- 5-second timeout for safety
+- Validates return codes (with modulo 256 for large values)
+- Progress bar with timing statistics
+- Flexible testing: random samples or full dataset
 
-**Purpose:** Verify that generated binaries actually execute correctly.
+**Usage:**
+```bash
+python scripts/dataset/test_minimal_binaries.py        # 50 random samples
+python scripts/dataset/test_minimal_binaries.py -n 100 # 100 samples
+python scripts/dataset/test_minimal_binaries.py --all  # All 10,000
+```
+
+**2. `scripts/dataset/test_binary.py`** - Compile and test utility
+
+**Features:**
+- Compiles C code to RISC-V on-the-fly
+- Tests individual programs
+- 5-second timeout for safety
+- Used for ad-hoc testing
+
+**Purpose:** Verify that binaries execute correctly on QEMU before training.
 
 ---
 
@@ -298,26 +301,45 @@ Created `scripts/test_binary.py` for validation:
 ```
 kai/
 ├── dataset/
-│   ├── raw/              # (Future: external C code sources)
+│   ├── raw/              # Reserved for external data sources
 │   └── processed/        # Generated training data
-│       └── synthetic_dataset.jsonl (2,496 examples, 9.9MB)
+│       ├── returns_dataset.jsonl (21MB, 10K examples)
+│       ├── returns_training.jsonl (17MB, formatted)
+│       └── returns_training_hf/ (83MB, HuggingFace Arrow format)
 │
 ├── models/
 │   ├── base/
 │   │   └── qwen3-0.6b/   # Base model (1.5GB)
-│   └── checkpoints/      # (Future: training checkpoints)
+│   └── checkpoints/      # Training checkpoints
+│       └── qwen3-0.6b-lora/ (created during training)
 │
 ├── scripts/
-│   ├── dataset_generation/
-│   │   ├── generate_synthetic_dataset.py
-│   │   └── verify_dataset.py
-│   ├── download_model.py
-│   ├── install_deps.sh
-│   └── test_binary.py
+│   ├── setup/
+│   │   ├── download_base_model.py
+│   │   └── install_dependencies.sh
+│   ├── dataset/
+│   │   ├── generate_returns_dataset.py
+│   │   ├── test_minimal_binaries.py
+│   │   ├── test_binary.py
+│   │   ├── format_for_training.py
+│   │   └── verify_binaries_qemu.py
+│   ├── training/
+│   │   └── train_model.py
+│   ├── generation/
+│   │   └── generate_binary.py
+│   └── evaluation/
+│       ├── analyze_elf_structure.py
+│       ├── compare_output.py
+│       └── evaluate_model.py
 │
-├── configs/              # (Future: training configurations)
-├── evaluation/           # (Future: evaluation scripts)
+├── docs/
+│   ├── ELF Binary Structure Guide.md
+│   └── Minimal Static Binaries.md
 │
+├── notes/
+│   └── Setup and Dataset Generation.md
+│
+├── kai                   # CLI wrapper script
 ├── .envrc                # Direnv automation
 ├── .gitignore            # Excludes models, venv, datasets
 ├── shell.nix             # Nix environment declaration
@@ -356,10 +378,10 @@ kai/
 
 ### 4. Why Assembly + Binary in Dataset?
 
-- Assembly: Human-readable, good for model interpretability
-- Binary: Ultimate ground truth, enables execution validation
-- Both formats train model on different representations
-- Flexibility in output format during inference
+- Assembly: Human-readable, used for debugging and verification only
+- Binary: What the model actually generates during training
+- Assembly is NOT used for training, only for our analysis
+- Model learns: prompt → binary (hex-encoded executable)
 
 ### 5. Deterministic Generation (temperature=0)
 
@@ -401,17 +423,17 @@ kai/
 **Model:**
 
 - Parameters: 600M (0.6B)
-- Context window: 32,768 tokens
+- Context window: 32,768 max (training uses 2,048)
 - Precision: bfloat16
 - Size on disk: 1.5GB
 
 **Dataset:**
 
-- Examples: 2,496
-- Size: 9.9 MB
-- Success rate: 99.8%
+- Examples: 10,000
+- Size: 21 MB
+- Success rate: 100%
 - Uniqueness: 100%
-- Coverage: 5 complexity levels
+- Coverage: Return values 1-10,000
 
 **Environment:**
 
@@ -423,46 +445,94 @@ kai/
 **Quality:**
 
 - Zero duplicate prompts
-- Zero prompt→source conflicts
-- Zero data format errors
+- Zero duplicate binaries
+- All binaries execute correctly on QEMU
 - Automated verification passing
 
 ---
 
 ## Completed Implementation
 
-Training pipeline now functional:
+Training pipeline fully functional:
 
 1. **Data Preprocessing** ✅
-   - `scripts/preprocessing/format_dataset.py` converts JSONL → Hugging Face Dataset
+   - `scripts/dataset/format_for_training.py` converts JSONL → Hugging Face Dataset
    - Formatted for instruction tuning with prompt/response pairs
-   - Train/validation split (90/10)
-   - Saved to `dataset/processed/training_dataset_hf/`
+   - Flexible input/output paths via command-line flags
+   - Saved to `dataset/processed/returns_training_hf/`
 
 2. **Training Script** ✅
-   - `scripts/train.py` with Unsloth configuration
-   - QLoRA hyperparameters: 4-bit quantization, LoRA rank 16, alpha 32
-   - Test mode (10 examples) and full mode (2,500 examples)
+   - `scripts/training/train_model.py` with Unsloth configuration
+   - QLoRA hyperparameters: 4-bit quantization, LoRA rank 16, alpha 16
+   - Test mode (10 examples, 10 steps) and full mode (10,000 examples, 3 epochs)
+   - Dataset selection via `--dataset` flag
    - Checkpoint management to `models/checkpoints/`
-   - VRAM-efficient: ~0.6GB loaded, 3.2GB peak
+   - VRAM-efficient: ~0.6GB loaded, peak depends on batch size
 
-3. **NixOS/Triton Compatibility** ✅
+3. **Generation Pipeline** ✅
+   - `scripts/generation/generate_binary.py` for inference
+   - Greedy decoding (temperature=0) for deterministic output
+   - Saves raw hex output and compiled binary
+   - Accessible via `./kai generate` CLI
+
+4. **CLI Wrapper** ✅
+   - `./kai` command for unified interface
+   - `./kai train --dataset <path>` for training
+   - `./kai generate --prompt "..."` for inference
+   - Pass-through of all command-line arguments
+
+5. **NixOS/Triton Compatibility** ✅
    - Fixed Python.h compilation errors (python312Full)
    - Fixed ptxas discovery (TRITON_PTXAS_PATH)
    - All environment variables in `.envrc`
    - See `notes/Triton NixOS issue.md`
 
-## Next Steps (Not Yet Implemented)
+## Evolution: Minimal Static Binaries
 
-4. **Inference & Evaluation**
-   - Generate binaries from prompts
-   - Execute and validate on QEMU
-   - Measure accuracy (exact match, execution success)
+**Problem with original approach:**
+- Dynamic linking produced 8KB binaries for simple programs
+- 98% was ELF metadata (.plt, .got, .dynamic, etc.)
+- Required 20K+ token context window
+- Model had to learn complex linking infrastructure
 
-5. **Iteration**
-   - Expand dataset with more complexity levels
-   - Add function calls and control flow
-   - Multi-architecture support (x86-64, ARM)
+**Solution:**
+- Switched to minimal static binaries (~500 bytes)
+- Direct syscalls instead of libc
+- 95% is actual code, 5% is ELF header
+- Fits in 2048 token window (17x reduction)
+- Language-agnostic prompts from the start
+
+See `docs/Minimal Static Binaries.md` for full details.
+
+## Current Status
+
+**Completed:** ✅
+- Environment setup with Nix + direnv
+- Base model downloaded (Qwen3-0.6B)
+- Returns dataset generated (10,000 examples)
+- Minimal static binary approach implemented
+- Training pipeline functional
+- Generation pipeline functional
+- Binary validation on QEMU working
+- CLI wrapper (`./kai`) for ease of use
+
+**In Progress:** 🔄
+- Training on returns dataset (10K examples)
+- Evaluating model performance
+
+## Next Steps
+
+**Immediate:**
+- Complete training run on returns dataset
+- Evaluate model accuracy (exact match, execution correctness)
+- Test generalization to unseen values
+
+**Future Expansion:**
+- Add arithmetic operations (addition, subtraction, etc.)
+- Add conditionals and control flow
+- Support multiple syscalls (write, read, open)
+- Generate more complex programs
+- Multi-architecture support (x86-64, ARM)
 
 ---
 
@@ -478,9 +548,10 @@ Training pipeline now functional:
 **Key Technical Insights:**
 
 - Dataset quality > quantity for initial validation
-- Deduplication must happen at generation time, not post-processing
-- Same prompt → different code is a critical bug that poisons training
-- Binary size consistency (~1,580 bytes) indicates stable compilation
+- Minimal static binaries (500 bytes) fit in context window vs dynamic linking (8KB)
+- Language-agnostic prompts prevent model bias toward specific languages
+- Direct syscalls eliminate libc dependency and reduce binary complexity
+- Progress bars and timing in all long-running scripts improve UX
 
 **Infrastructure Wins:**
 
@@ -496,7 +567,6 @@ Training pipeline now functional:
 **Research:**
 
 - Qwen3 model card: <https://huggingface.co/Qwen/Qwen3-0.6B>
-- LLM4Decompile: 4B tokens of binary/source pairs
 - Unsloth documentation: <https://unsloth.ai/docs/models/qwen3-how-to-run-and-fine-tune>
 
 **Tools:**
