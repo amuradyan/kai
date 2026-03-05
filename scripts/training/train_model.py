@@ -21,6 +21,8 @@ def main():
     parser.add_argument("--num-examples", type=int, default=None, help="Limit number of training examples")
     parser.add_argument("--dataset", type=str, default="dataset/processed/training_dataset_hf",
                         help="Path to HuggingFace dataset directory (default: training_dataset_hf)")
+    parser.add_argument("--run-name", type=str, default=None,
+                        help="Name for this training run (default: qwen3-0.6b-lora[-test])")
     args = parser.parse_args()
 
     # Test mode overrides
@@ -68,7 +70,10 @@ def main():
     print(f"Sample: {dataset[0]['text'][:200]}...")
 
     # Training arguments
-    output_dir = "./models/checkpoints/qwen3-0.6b-lora-test" if args.test else "./models/checkpoints/qwen3-0.6b-lora"
+    if args.run_name:
+        output_dir = f"./models/checkpoints/{args.run_name}"
+    else:
+        output_dir = "./models/checkpoints/qwen3-0.6b-lora-test" if args.test else "./models/checkpoints/qwen3-0.6b-lora"
 
     training_args = TrainingArguments(
         output_dir=output_dir,
