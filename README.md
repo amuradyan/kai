@@ -8,18 +8,19 @@ Most code generation models output source code—Python, C, JavaScript. But sour
 
 We're starting with RISC-V because its instruction set is simpler and more regular than x86-64, making it easier for a model to learn. Once proven, the approach can extend to other architectures.
 
-**Model:** Qwen3-0.6B (600M parameters, 32K context)
+**Model:** Qwen3-0.6B (600M parameters)
 **Target:** RISC-V 64-bit binaries
 **Training:** QLoRA (4-bit quantization) on 8GB GPU
-**Dataset:** Synthetic C programs → compiled RISC-V binaries
+**Dataset:** Synthetic programs compiled to RISC-V binaries (initial implementation uses C)
 
 ## Quick Start
 
-Get from zero to a trained model in four steps:
+Get from zero to a trained model in five steps:
 
 ```bash
-# 1. Set up the environment (first time only)
-direnv allow .
+# 1. Set up Python environment
+python -m venv .venv
+source .venv/bin/activate
 ./scripts/setup/install_dependencies.sh
 
 # 2. Download the base model (runs in background)
@@ -36,8 +37,6 @@ python scripts/dataset/format_for_training.py
 ./kai train         # Full training: 2,500 examples, 3 epochs
 ```
 
-The environment automatically activates when you `cd` into the directory—no manual setup needed after the first time.
-
 **Using the Kai CLI:**
 
 ```bash
@@ -49,22 +48,51 @@ The environment automatically activates when you `cd` into the directory—no ma
 
 ## Setup
 
-This project uses NixOS with direnv for completely reproducible builds. Every dependency, from Python to the RISC-V compiler, is declared and versioned.
+### System Requirements
+
+**Required packages:**
+
+- Python 3.10+ (3.12 recommended)
+- GCC (for compiling binaries)
+- RISC-V cross-compiler (`riscv64-unknown-linux-gnu-gcc` or `riscv64-linux-gnu-gcc`)
+- QEMU with RISC-V support (`qemu-user` or `qemu-riscv64`)
+- CUDA 12.1+ (for GPU training)
+
+**Installation by distribution:**
+
+**Ubuntu/Debian:**
+
+```bash
+sudo apt install python3 python3-venv gcc-riscv64-unknown-elf qemu-user
+```
+
+**Fedora:**
+
+```bash
+sudo dnf install python3 gcc-riscv64-linux-gnu qemu-user
+```
+
+**Arch Linux:**
+
+```bash
+sudo pacman -S python gcc riscv64-linux-gnu-gcc qemu-user
+```
+
+**NixOS (optional):**
+If you prefer reproducible builds, this project includes Nix configuration:
+
+```bash
+direnv allow .  # Automatically sets up everything
+```
 
 ### First Time Setup
 
-**1. Activate the environment:**
+**1. Create Python virtual environment:**
 
 ```bash
-direnv allow .
+python -m venv .venv
+source .venv/bin/activate
 ```
-
-This command triggers everything:
-
-- Loads Nix shell with Python 3.12, GCC, CUDA, RISC-V toolchain, and QEMU
-- Creates a Python virtual environment in `.venv/`
-- Sets up CUDA paths for PyTorch
-- Activates the venv automatically
 
 **2. Install Python dependencies:**
 
@@ -72,7 +100,7 @@ This command triggers everything:
 ./scripts/setup/install_dependencies.sh
 ```
 
-This installs the ML stack: PyTorch with CUDA 12.1, Transformers, Unsloth (for efficient QLoRA training), and binary analysis tools like Capstone and LIEF.
+This installs PyTorch with CUDA 12.1, Transformers, Unsloth (for efficient QLoRA training), and binary analysis tools.
 
 **3. Download the base model:**
 
@@ -84,23 +112,19 @@ Downloads Qwen3-0.6B from Hugging Face (~1.5GB). This can run in the background 
 
 ### Daily Usage
 
-The magic of direnv: just navigate to the project.
+Activate the virtual environment:
 
 ```bash
-cd ~/playground/kai
-# Environment loads automatically
-# Virtual environment activates
-# CUDA paths configured
-# RISC-V compiler available
+source .venv/bin/activate
 ```
 
-Everything you need is in scope. No activation scripts, no PATH juggling.
+If using NixOS with direnv, the environment activates automatically when you `cd` into the directory.
 
 ## Usage
 
 ### Generate Training Data
 
-The model learns from pairs: natural language prompts and their corresponding RISC-V binaries. We generate these synthetically by creating simple C programs and compiling them.
+The model learns from pairs: natural language prompts and their corresponding RISC-V binaries. We generate these synthetically by creating simple programs and compiling them to machine code.
 
 ```bash
 python scripts/dataset/generate_synthetic_dataset.py
@@ -114,7 +138,7 @@ This creates 2,500 examples across five complexity levels:
 - **Conditionals** (500): `if (a > b) return 1; else return 0;`
 - **Loops** (500): `for (int i = 0; i < N; i++) sum += i;`
 
-Each example is compiled to RISC-V with `riscv64-unknown-linux-gnu-gcc`, producing both the binary (hex-encoded) and assembly listing. The dataset is saved to `dataset/processed/synthetic_dataset.jsonl` (~10MB).
+Each example is compiled to RISC-V with `riscv64-unknown-linux-gnu-gcc`, producing both the binary (hex-encoded) and assembly listing. The dataset is saved to `dataset/processed/synthetic_dataset.jsonl` (~10MB). The initial implementation generates C programs, but the approach is language-agnostic—any compiled language could be used.
 
 **Verify the dataset:**
 
@@ -163,10 +187,10 @@ Training happens on a single GPU using Unsloth's optimizations, fitting comforta
 Once trained, generate executable binaries from natural language:
 
 ```bash
-./kai generate --prompt "Write a C program that returns the sum of 10 and 20" --output my_binary
+./kai generate --prompt "Write a program that returns the sum of 10 and 20" --output my_binary
 ```
 
-The model outputs hex-encoded RISC-V machine code, which is converted to an executable binary file:
+The model outputs hex-encoded RISC-V machine code, which is converted to an executable binary file. Test it with QEMU:
 
 ```bash
 qemu-riscv64 my_binary
@@ -239,22 +263,13 @@ RISC-V is a natural starting point for teaching models to generate machine code:
 
 ## Technical Approach
 
-1. **Synthetic data generation** - Create diverse C programs, compile to RISC-V
+1. **Synthetic data generation** - Create diverse programs, compile to RISC-V
 2. **Instruction tuning** - Format as prompt → binary pairs
 3. **QLoRA fine-tuning** - Efficient 4-bit training with LoRA adapters
 4. **Deterministic generation** - Temperature 0, greedy decoding (binaries must be exact)
 5. **Validation** - Execute generated binaries on QEMU, verify correctness
 
 See `notes/Setup and Dataset Generation.md` for detailed technical log.
-
-## Status
-
-- ✅ Environment setup (Nix + direnv)
-- ✅ Base model downloaded (Qwen3-0.6B)
-- ✅ Dataset generation pipeline (2,500 examples)
-- ✅ Binary validation on QEMU
-- ✅ Training pipeline (QLoRA with Unsloth)
-- 🚧 Inference and evaluation (planned)
 
 ---
 
