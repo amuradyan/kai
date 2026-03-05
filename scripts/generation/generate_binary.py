@@ -191,6 +191,12 @@ def main():
         print(f"\n\n❌ Generation failed: {e}")
         sys.exit(1)
 
+    # Save raw output for debugging
+    raw_output_path = args.output + ".raw"
+    with open(raw_output_path, 'w') as f:
+        f.write(hex_output)
+    print(f"\n📝 Raw output saved to: {raw_output_path}")
+
     # Show hex if requested
     if args.show_hex:
         print(f"\nGenerated hex ({len(hex_output)} chars):")

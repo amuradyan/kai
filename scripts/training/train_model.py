@@ -19,6 +19,8 @@ def main():
     parser.add_argument("--test", action="store_true", help="Run small-scale test (10 examples, 10 steps)")
     parser.add_argument("--max-steps", type=int, default=None, help="Max training steps (overrides epochs)")
     parser.add_argument("--num-examples", type=int, default=None, help="Limit number of training examples")
+    parser.add_argument("--dataset", type=str, default="dataset/processed/training_dataset_hf",
+                        help="Path to HuggingFace dataset directory (default: training_dataset_hf)")
     args = parser.parse_args()
 
     # Test mode overrides
@@ -51,8 +53,8 @@ def main():
     if torch.cuda.is_available():
         print(f"VRAM after model prep: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
 
-    print("Loading dataset...")
-    dataset = load_from_disk("dataset/processed/training_dataset_hf")
+    print(f"Loading dataset from {args.dataset}...")
+    dataset = load_from_disk(args.dataset)
 
     # Limit examples if specified
     if args.num_examples:

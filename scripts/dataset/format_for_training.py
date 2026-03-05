@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Convert synthetic dataset to instruction-tuning format for training."""
 
+import argparse
 import json
 from pathlib import Path
 from datasets import Dataset
@@ -13,9 +14,34 @@ def format_for_training(example):
     }
 
 def main():
-    print("Loading synthetic dataset...")
-    input_path = Path("dataset/processed/synthetic_dataset.jsonl")
-    output_path = Path("dataset/processed/training_dataset.jsonl")
+    parser = argparse.ArgumentParser(
+        description="Format dataset for instruction tuning"
+    )
+    parser.add_argument(
+        "--input",
+        type=str,
+        default="dataset/processed/synthetic_dataset.jsonl",
+        help="Input JSONL dataset file (default: synthetic_dataset.jsonl)"
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="dataset/processed/training_dataset",
+        help="Output base name without extensions (default: training_dataset)"
+    )
+    args = parser.parse_args()
+
+    input_path = Path(args.input)
+    output_base = Path(args.output)
+
+    print(f"Loading dataset from {input_path}...")
+
+    if not input_path.exists():
+        print(f"❌ Input file not found: {input_path}")
+        return
+
+    output_path = output_base.with_suffix(".jsonl")
+    output_hf_path = Path(str(output_base) + "_hf")
 
     # Read and convert
     formatted_examples = []
@@ -36,10 +62,9 @@ def main():
 
     # Create Hugging Face dataset
     dataset = Dataset.from_list(formatted_examples)
-    dataset_hf_path = Path("dataset/processed/training_dataset_hf")
-    dataset.save_to_disk(str(dataset_hf_path))
+    dataset.save_to_disk(str(output_hf_path))
 
-    print(f"✅ Saved Hugging Face dataset to {dataset_hf_path}")
+    print(f"✅ Saved Hugging Face dataset to {output_hf_path}")
     print(f"\nDataset info:")
     print(f"  Total examples: {len(dataset)}")
     print(f"  Features: {dataset.features}")
