@@ -15,7 +15,38 @@ The project now includes a two-phase curriculum training approach to solve the v
 **Training:** QLoRA (4-bit quantization) on 8GB GPU
 **Dataset:** 10,000 minimal static RISC-V binaries (prompt → hex format)
 
-## Quick Start
+## Quick Start - Curriculum Training
+
+For faster, more effective training using our weighted loss approach:
+
+```bash
+# 1. Set up environment
+python -m venv .venv
+source .venv/bin/activate
+./scripts/setup/install_dependencies.sh
+
+# 2. Generate Phase 1 dataset (81 strategic examples with END_BINARY)
+python scripts/dataset/generate_phase1_dataset.py
+
+# 3. Format for training
+python scripts/dataset/format_for_training.py \
+    --input dataset/processed/phase1_dataset.jsonl \
+    --output dataset/processed/phase1_training
+
+# 4. Train with weighted loss (40 epochs)
+./kai train \
+    --dataset dataset/processed/phase1_training_hf \
+    --run-name all-non-zeros-5x \
+    --num-train-epochs 40 \
+    --learning-rate 1e-4
+
+# 5. Test with validation values
+python scripts/evaluation/validate_checkpoint.py \
+    --checkpoint models/checkpoints/all-non-zeros-5x \
+    --test-values 15 750
+```
+
+## Quick Start - Standard Training
 
 Get from zero to a trained model in five steps:
 
@@ -207,11 +238,12 @@ kai/
 │   │   ├── download_base_model.py
 │   │   └── install_dependencies.sh
 │   ├── dataset/
-│   │   ├── generate_returns_dataset.py   # Generate minimal static binaries
+│   │   ├── generate_returns_dataset.py      # Full 10K dataset generator
+│   │   ├── generate_phase1_dataset.py       # Phase 1 curriculum dataset (81 examples)
 │   │   ├── format_for_training.py
-│   │   ├── create_phase1_subset.py      # Curriculum training
-│   │   ├── test_minimal_binaries.py      # Test binaries with QEMU
-│   │   └── verify_binaries_qemu.py
+│   │   ├── create_phase1_subset.py          # Select from full dataset
+│   │   ├── verify_returns_dataset.py        # Simplified verification for new format
+│   │   └── verify_binaries_qemu.py          # [DEPRECATED - old format]
 │   ├── training/
 │   │   └── train_model.py                # Now supports --from-checkpoint
 │   ├── generation/
@@ -270,6 +302,21 @@ RISC-V is a natural starting point for teaching models to generate machine code:
 5. **Validation** - Execute generated binaries on QEMU, verify correctness
 
 See `notes/Setup and Dataset Generation.md` for detailed technical log.
+
+## Advanced Training Techniques
+
+### Weighted Loss Training
+We discovered the model struggles with low-entropy regions (like footers with 90% zeros). Our solution: weight all non-zero tokens 5x during training, forcing the model to pay attention to information-carrying bytes.
+
+### END_BINARY Token
+Added a custom `<END_BINARY>` token to explicitly mark where binaries end. This solved the early stopping problem where the model would generate only 922 characters and fill the rest with zeros.
+
+### Curriculum Learning
+Two-phase approach:
+- **Phase 1**: 81 strategic examples (30 small + 51 large values) with high learning rate
+- **Phase 2**: Full 10K dataset with lower learning rate for generalization
+
+See `notes/The case of long zero footers/` for detailed investigation.
 
 ---
 

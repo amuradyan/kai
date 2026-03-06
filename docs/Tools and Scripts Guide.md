@@ -71,6 +71,35 @@ python scripts/dataset/generate_returns_dataset.py
 
 ---
 
+### `scripts/dataset/generate_phase1_dataset.py`
+
+**Purpose:** Generate strategic Phase 1 curriculum dataset directly.
+
+**What it does:**
+
+- Generates 81 carefully selected examples
+- 30 small values (1-31, except 15): compressed RISC-V instructions
+- 51 large values (32-10000, except 750): uncompressed instructions
+- Automatically includes `<END_BINARY>` token
+- Takes ~2 minutes (vs 10 for full dataset)
+
+**Usage:**
+
+```bash
+python scripts/dataset/generate_phase1_dataset.py
+```
+
+**When to use:**
+
+- Curriculum training experiments
+- Quick training iterations
+- Testing new loss functions
+- Value encoding experiments
+
+**Output:** `phase1_dataset.jsonl` with END_BINARY tokens
+
+---
+
 ### `scripts/dataset/create_phase1_subset.py`
 
 **Purpose:** Create focused dataset for Phase 1 curriculum training.
@@ -187,7 +216,17 @@ python scripts/dataset/verify_returns_dataset.py --dataset dataset/processed/pha
 
 - Loads base model with QLoRA (4-bit quantization)
 - Trains on instruction → binary_hex pairs
+- Supports custom weighted loss via `NonZeroWeightedTrainer`
+- Automatically adds `<END_BINARY>` special token
 - Saves checkpoints to `models/checkpoints/`
+
+**Weighted Loss Training:**
+
+The script includes `NonZeroWeightedTrainer` class that:
+- Weights all non-zero hex tokens 5x
+- Weights `<END_BINARY>` token 5x
+- Helps model focus on information-carrying bytes
+- Solves footer generation and value encoding problems
 
 **Usage:**
 
