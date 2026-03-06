@@ -71,6 +71,43 @@ python scripts/dataset/generate_returns_dataset.py
 
 ---
 
+### `scripts/dataset/create_phase1_subset.py`
+
+**Purpose:** Create focused dataset for Phase 1 curriculum training.
+
+**What it does:**
+
+- Selects 100 strategic examples from full dataset
+- 50 small values (1-31): Use compressed RISC-V instructions
+- 50 large values (≥32): Use uncompressed instructions
+- Holds out specific values for validation (default: 15, 750)
+- Ensures coverage of both instruction types
+
+**Usage:**
+
+```bash
+# Default: 50 small + 50 large, hold out 15 and 750
+python scripts/dataset/create_phase1_subset.py
+
+# Custom parameters
+python scripts/dataset/create_phase1_subset.py \
+    --input dataset/processed/returns_dataset.jsonl \
+    --output dataset/processed/phase1_dataset.jsonl \
+    --num-small 50 \
+    --num-large 50 \
+    --hold-out 15,750
+```
+
+**When to use:**
+
+- Setting up Phase 1 of curriculum training
+- Teaching model the value encoding mechanic
+- Creating focused dataset for difficult-to-learn patterns
+
+**Output:** `phase1_dataset.jsonl` (100 examples)
+
+---
+
 ### `scripts/dataset/format_for_training.py`
 
 **Purpose:** Convert JSONL dataset to HuggingFace format for training.
@@ -176,6 +213,9 @@ python scripts/dataset/test_minimal_binaries.py --all
 - `--run-name NAME` - Custom checkpoint name
 - `--max-steps N` - Override epoch-based training
 - `--num-examples N` - Limit training examples
+- `--from-checkpoint PATH` - Continue training from existing checkpoint
+- `--learning-rate FLOAT` - Set learning rate (default: 2e-4)
+- `--num-train-epochs FLOAT` - Number of epochs (default: 3.0)
 
 **Output:** Model checkpoint in `models/checkpoints/{run-name}/`
 
@@ -238,6 +278,77 @@ python scripts/dataset/test_minimal_binaries.py --all
 ---
 
 ## 5. Evaluation & Analysis
+
+### `scripts/evaluation/test_with_fixed_footer.py`
+
+**Purpose:** Test raw model output by fixing footer and running with QEMU.
+
+**What it does:**
+
+- Takes raw model output (incomplete hex)
+- Strips trailing zeros
+- Finds cut marker position
+- Grafts footer from dataset reference
+- Converts to binary and runs with QEMU
+- Reports exit code
+
+**Usage:**
+
+```bash
+python scripts/evaluation/test_with_fixed_footer.py test_output.raw
+```
+
+**When to use:**
+
+- Quick testing during training
+- Model generates incomplete output (stops early)
+- Debugging value encoding issues
+- Testing without full binary generation
+
+**Output:** Exit code from QEMU execution
+
+---
+
+### `scripts/evaluation/validate_checkpoint.py`
+
+**Purpose:** Validate checkpoint on specific values - gate between Phase 1 and Phase 2.
+
+**What it does:**
+
+- Loads model checkpoint
+- Generates binaries for test values
+- Fixes incomplete output with dataset footer
+- Runs with QEMU and checks exit codes
+- Reports PASS/FAIL for each value
+- Returns exit code 0 if all pass, 1 if any fail
+
+**Usage:**
+
+```bash
+# Default: test on values 15 and 750
+python scripts/evaluation/validate_checkpoint.py \
+    --checkpoint models/checkpoints/phase1-mechanic
+
+# Custom test values
+python scripts/evaluation/validate_checkpoint.py \
+    --checkpoint models/checkpoints/phase1-mechanic \
+    --test-values 15 750 1000
+```
+
+**When to use:**
+
+- After Phase 1 training (curriculum learning)
+- Before proceeding to Phase 2
+- Validating model learned specific mechanic
+- Quality gate in training pipeline
+
+**Output:**
+
+- Per-value PASS/FAIL results
+- Summary of validation
+- Exit code for scripting (0 = success)
+
+---
 
 ### `scripts/evaluation/evaluate_model.py`
 
@@ -528,3 +639,63 @@ python scripts/utils/hex_to_binary.py fixed.raw
 qemu-riscv64 fixed
 echo "Fixed exit code: $?"
 ```
+
+---
+
+### Two-Phase Curriculum Training
+
+Train the model using curriculum learning to solve value encoding problems:
+
+```bash
+# Phase 1: Teach the Mechanic (100 examples, focused learning)
+
+# 1. Create Phase 1 dataset
+python scripts/dataset/create_phase1_subset.py \
+    --input dataset/processed/returns_dataset.jsonl \
+    --output dataset/processed/phase1_dataset.jsonl \
+    --num-small 50 \
+    --num-large 50 \
+    --hold-out 15,750
+
+# 2. Format Phase 1 dataset
+python scripts/dataset/format_for_training.py \
+    --input dataset/processed/phase1_dataset.jsonl \
+    --output dataset/processed/phase1_training
+
+# 3. Train Phase 1 (high learning rate, many epochs)
+./kai train \
+    --dataset dataset/processed/phase1_training_hf \
+    --run-name phase1-mechanic \
+    --learning-rate 1e-4 \
+    --num-train-epochs 25
+
+# 4. Validate Phase 1 (GATE - must pass before Phase 2)
+python scripts/evaluation/validate_checkpoint.py \
+    --checkpoint models/checkpoints/phase1-mechanic \
+    --test-values 15 750
+
+# If validation fails, adjust Phase 1 training (more epochs, different LR)
+# Only proceed to Phase 2 after validation passes
+
+# Phase 2: Generalize (10K examples, lower learning rate)
+
+# 5. Train Phase 2 from Phase 1 checkpoint
+./kai train \
+    --from-checkpoint models/checkpoints/phase1-mechanic \
+    --dataset dataset/processed/returns_training_hf \
+    --run-name phase2-generalize \
+    --learning-rate 5e-5 \
+    --num-train-epochs 7
+
+# 6. Evaluate final model
+python scripts/evaluation/evaluate_model.py \
+    --checkpoint models/checkpoints/phase2-generalize \
+    --range 1 100
+```
+
+**Why Curriculum Training?**
+
+- Phase 1: Teaches precise value encoding on small dataset (100 examples)
+- Phase 2: Generalizes learning to full range (10K examples)
+- Solves problem where model learns structure but fails values
+- Gate ensures mechanic is learned before generalizing

@@ -590,3 +590,44 @@ See `docs/Minimal Static Binaries.md` for full details.
 - Ready for full-scale training runs ✅
 
 See `notes/Triton NixOS issue.md` for details on Python.h and ptxas compilation fixes.
+
+---
+
+## Phase 3: Curriculum Training
+
+After initial training with the full dataset failed to correctly encode values (model learned ELF structure but generated wrong immediate values), we implemented a two-phase curriculum training approach.
+
+### The Problem
+
+First training run with 10K examples over 3 epochs resulted in:
+- ✅ Perfect ELF structure generation
+- ✅ Correct syscall sequence
+- ❌ Wrong immediate values (e.g., generated 145 instead of 42)
+
+The issue: the mapping from text "42" to RISC-V encoding `02a00513` is buried in 1696 hex chars of mostly-static output. The signal is too weak.
+
+### The Solution: Two-Phase Curriculum
+
+**Phase 1: Teach the Mechanic**
+- Dataset: 100 strategic examples (50 small values 1-31, 50 large values ≥32)
+- Training: 20-30 epochs at 1e-4 learning rate
+- Goal: Learn value encoding in isolation
+- Validation: Test on held-out values (15, 750)
+
+**Phase 2: Generalize**
+- Dataset: Full 10K examples
+- Training: 5-7 epochs at 5e-5 learning rate from Phase 1 checkpoint
+- Goal: Extend learning to full value range
+- Validation: Test across range 1-100
+
+### Implementation
+
+New scripts added for curriculum training:
+- `scripts/dataset/create_phase1_subset.py` - Create focused Phase 1 dataset
+- `scripts/evaluation/test_with_fixed_footer.py` - Quick test with footer fix
+- `scripts/evaluation/validate_checkpoint.py` - Gate between phases
+- `scripts/training/train_model.py` - Added `--from-checkpoint`, `--learning-rate`, `--num-train-epochs`
+
+See `notes/Two-Phase Curriculum Training Implementation.md` for complete workflow and commands.
+
+**Status:** Curriculum training pipeline implemented and ready for execution. ✅

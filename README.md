@@ -8,6 +8,8 @@ Most code generation models output source code—Python, C, JavaScript. But sour
 
 We're starting with RISC-V because its instruction set is simpler and more regular than x86-64, making it easier for a model to learn. Once proven, the approach can extend to other architectures.
 
+The project now includes a two-phase curriculum training approach to solve the value encoding problem—where the model learns ELF structure perfectly but fails to encode the correct values. Phase 1 teaches the encoding mechanic on 100 focused examples, then Phase 2 generalizes to the full dataset.
+
 **Model:** Qwen3-0.6B (600M parameters)
 **Target:** RISC-V 64-bit binaries
 **Training:** QLoRA (4-bit quantization) on 8GB GPU
@@ -217,13 +219,17 @@ kai/
 │   │   ├── generate_synthetic_dataset.py
 │   │   ├── verify_dataset.py
 │   │   ├── format_for_training.py
+│   │   ├── create_phase1_subset.py      # Curriculum training
 │   │   ├── test_binary.py
 │   │   └── verify_binaries_qemu.py
 │   ├── training/
-│   │   └── train_model.py
-│   └── generation/
-│       ├── generate_binary.py
-│       └── test_generation.sh
+│   │   └── train_model.py                # Now supports --from-checkpoint
+│   ├── generation/
+│   │   ├── generate_binary.py
+│   │   └── test_generation.sh
+│   └── evaluation/
+│       ├── test_with_fixed_footer.py     # Quick test incomplete output
+│       └── validate_checkpoint.py         # Phase 1/2 gate
 │
 ├── configs/              # Training configurations (future)
 ├── evaluation/           # Evaluation scripts (future)
