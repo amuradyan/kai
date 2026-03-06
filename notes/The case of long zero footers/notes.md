@@ -344,3 +344,60 @@ The `early_stopping=False` fix **failed**. Model still only generates 922 chars 
 
 **Root problem remains:**
 The model has learned that meaningful content ends at position 922. It never learned to generate the footer section. The footer in training data has such low entropy (mostly zeros) that the model treats it as optional padding rather than essential structure
+
+---
+
+## All Non-Zeros 5x Weighting Experiment
+
+### The Hypothesis
+
+Instead of complex position-aware weighting, try a simple approach:
+- Weight ALL non-zero hex characters 5x (everywhere in the binary)
+- Add `<END_BINARY>` token for explicit stop signal
+- This might solve both problems: footer generation AND value encoding
+
+### Why This Might Work
+
+1. **Zeros are overrepresented** - In the full binary:
+   - Header: ~20% zeros
+   - Code: ~30% zeros
+   - Footer: ~90% zeros
+   - Overall: ~60-70% zeros
+
+2. **Non-zeros carry all information**:
+   - Header: ELF magic bytes, metadata
+   - Code: The actual return value encoding
+   - Footer: Section sizes, offsets
+
+3. **Current failures are with non-zeros**:
+   - Value encoding wrong (145 instead of 42)
+   - Footer non-zeros missed (stops at 922)
+
+### Implementation
+
+1. **Custom Weighted Loss**:
+   - Find zero token ID from tokenizer
+   - Weight all non-zero tokens 5x
+   - Weight `<END_BINARY>` token 5x
+
+2. **Dataset Changes**:
+   - Append `<END_BINARY>` to all binary_hex strings
+   - No other format changes needed
+
+3. **Training Plan**:
+   - 40 epochs on Phase 1 dataset (100 examples)
+   - Learning rate: 1e-4
+   - Branch: `all-non-zeros-5x`
+
+### Expected Outcomes
+
+If successful:
+- Model generates complete 1696-char binaries
+- Correct value encoding (non-zeros in code section get more attention)
+- Clear stopping with `<END_BINARY>` token
+
+Potential issues:
+- Header overfitting (non-zeros in header might get memorized)
+- 5x might be too high/low (could try 3x or 10x)
+
+### Status: Training in progress...
