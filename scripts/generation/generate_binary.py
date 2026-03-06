@@ -28,6 +28,13 @@ def load_model(checkpoint_path: str, max_seq_length: int = 2048):
         load_in_4bit=True,
     )
 
+    # Add END_BINARY special token if not already present
+    if '<END_BINARY>' not in tokenizer.get_vocab():
+        special_tokens_dict = {'additional_special_tokens': ['<END_BINARY>']}
+        num_added_toks = tokenizer.add_special_tokens(special_tokens_dict)
+        model.resize_token_embeddings(len(tokenizer))
+        print(f"Added {num_added_toks} special tokens for generation")
+
     # Enable inference mode (faster, no grad)
     FastLanguageModel.for_inference(model)
 
@@ -86,14 +93,21 @@ def generate_binary(
             early_stopping=False,
         )
 
-    # Decode output
-    full_output = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # Decode output (keep special tokens to find END_BINARY)
+    full_output = tokenizer.decode(outputs[0], skip_special_tokens=False)
 
     # Extract only the response part (after "### Response:")
     if "### Response:" in full_output:
         response = full_output.split("### Response:")[1].strip()
     else:
         response = full_output
+
+    # Remove END_BINARY token if present
+    if "<END_BINARY>" in response:
+        response = response.split("<END_BINARY>")[0]
+        print("Found END_BINARY token, generation stopped correctly")
+    else:
+        print("Warning: END_BINARY token not found in generation")
 
     return response
 

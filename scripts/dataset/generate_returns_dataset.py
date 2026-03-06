@@ -98,9 +98,10 @@ def main():
             binary_hex = binary_bytes.hex()
 
             # Create example - only keep essential fields
+            # Add END_BINARY token for clear stopping signal
             example = {
                 "prompt": f"Write a program that returns {i}",
-                "binary_hex": binary_hex
+                "binary_hex": binary_hex + "<END_BINARY>"
             }
 
             examples.append(example)

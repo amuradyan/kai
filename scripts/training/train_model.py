@@ -3,10 +3,58 @@
 
 import argparse
 import torch
+import torch.nn.functional as F
 from datasets import load_from_disk
 from unsloth import FastLanguageModel
 from trl import SFTTrainer
-from transformers import TrainingArguments
+from transformers import TrainingArguments, Trainer
+from torch import nn
+
+class NonZeroWeightedTrainer(SFTTrainer):
+    """Custom trainer with weighted loss for non-zero tokens."""
+
+    def __init__(self, *args, tokenizer=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.tokenizer = tokenizer
+
+        # Get token IDs we need
+        self.zero_token_id = tokenizer.encode('0', add_special_tokens=False)[0]
+
+        # Get END_BINARY token ID (will be set after adding special token)
+        end_tokens = tokenizer.encode('<END_BINARY>', add_special_tokens=False)
+        self.end_token_id = end_tokens[0] if end_tokens else None
+
+        print(f"Zero token ID: {self.zero_token_id}")
+        print(f"END_BINARY token ID: {self.end_token_id}")
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        """Custom loss that weights non-zero tokens 5x."""
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.get('logits')
+
+        # Create weight tensor
+        weights = torch.ones_like(labels, dtype=torch.float)
+
+        # Weight all non-zero hex characters 5x
+        non_zero_mask = (labels != self.zero_token_id) & (labels != -100)  # -100 is padding
+        weights[non_zero_mask] = 5.0
+
+        # Also weight END_BINARY token 5x if it exists
+        if self.end_token_id is not None:
+            end_mask = labels == self.end_token_id
+            weights[end_mask] = 5.0
+
+        # Compute weighted cross entropy
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        shift_weights = weights[..., 1:].contiguous()
+
+        loss_fct = nn.CrossEntropyLoss(reduction='none')
+        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        weighted_loss = (loss * shift_weights.view(-1)).mean()
+
+        return (weighted_loss, outputs) if return_outputs else weighted_loss
 
 def format_prompt(example):
     """Format example with chat template."""
@@ -80,6 +128,16 @@ def main():
             random_state=42,
         )
 
+    # Add END_BINARY special token
+    print("Adding END_BINARY special token...")
+    special_tokens_dict = {'additional_special_tokens': ['<END_BINARY>']}
+    num_added_toks = tokenizer.add_special_tokens(special_tokens_dict)
+    print(f"Added {num_added_toks} special tokens")
+
+    # Resize model embeddings to account for new token
+    model.resize_token_embeddings(len(tokenizer))
+    print(f"Token vocabulary size: {len(tokenizer)}")
+
     if torch.cuda.is_available():
         print(f"VRAM after model prep: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
 
@@ -123,8 +181,8 @@ def main():
         report_to="none",              # Disable wandb for now
     )
 
-    print("Initializing trainer...")
-    trainer = SFTTrainer(
+    print("Initializing trainer with weighted loss...")
+    trainer = NonZeroWeightedTrainer(
         model=model,
         tokenizer=tokenizer,
         train_dataset=dataset,
