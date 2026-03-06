@@ -170,7 +170,7 @@ def main():
     parser.add_argument(
         '--dataset',
         type=str,
-        default='./dataset/processed/synthetic_dataset.jsonl',
+        default='./dataset/processed/returns_dataset.jsonl',
         help='Path to test dataset',
     )
     parser.add_argument(

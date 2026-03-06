@@ -2,7 +2,7 @@
 """
 Verify RISC-V binaries from the dataset using QEMU emulation.
 
-Extracts binaries from the synthetic dataset and runs them with qemu-riscv64
+Extracts binaries from the dataset and runs them with qemu-riscv64
 to verify they execute correctly and produce expected return codes.
 """
 
@@ -297,7 +297,7 @@ def main():
     parser.add_argument(
         "dataset",
         nargs="?",
-        default="./dataset/processed/synthetic_dataset.jsonl",
+        default="./dataset/processed/returns_dataset.jsonl",
         help="Path to dataset JSONL file"
     )
     parser.add_argument(

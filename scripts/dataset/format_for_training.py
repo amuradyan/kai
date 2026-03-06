@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert synthetic dataset to instruction-tuning format for training."""
+"""Convert dataset to instruction-tuning format for training."""
 
 import argparse
 import json
@@ -20,8 +20,8 @@ def main():
     parser.add_argument(
         "--input",
         type=str,
-        default="dataset/processed/synthetic_dataset.jsonl",
-        help="Input JSONL dataset file (default: synthetic_dataset.jsonl)"
+        default="dataset/processed/returns_dataset.jsonl",
+        help="Input JSONL dataset file (default: returns_dataset.jsonl)"
     )
     parser.add_argument(
         "--output",

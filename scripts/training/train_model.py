@@ -23,6 +23,12 @@ def main():
                         help="Path to HuggingFace dataset directory (default: training_dataset_hf)")
     parser.add_argument("--run-name", type=str, default=None,
                         help="Name for this training run (default: qwen3-0.6b-lora[-test])")
+    parser.add_argument("--from-checkpoint", type=str, default=None,
+                        help="Continue training from existing checkpoint")
+    parser.add_argument("--learning-rate", type=float, default=2e-4,
+                        help="Learning rate (default: 2e-4)")
+    parser.add_argument("--num-train-epochs", type=float, default=3.0,
+                        help="Number of training epochs (default: 3.0)")
     args = parser.parse_args()
 
     # Test mode overrides
@@ -31,26 +37,48 @@ def main():
         args.num_examples = 10
         print("🧪 Running in TEST mode: 10 examples, 10 steps")
 
-    print("Loading model with Unsloth...")
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name='./models/base/qwen3-0.6b',
-        max_seq_length=2048,
-        dtype=None,
-        load_in_4bit=True,
-    )
+    if args.from_checkpoint:
+        print(f"Loading from checkpoint: {args.from_checkpoint}")
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=args.from_checkpoint,
+            max_seq_length=2048,
+            dtype=None,
+            load_in_4bit=True,
+        )
+        # Prepare for continued training
+        print("Preparing model for continued QLoRA training...")
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=16,                      # LoRA rank
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                           "gate_proj", "up_proj", "down_proj"],
+            lora_alpha=16,
+            lora_dropout=0.05,
+            bias="none",
+            use_gradient_checkpointing="unsloth",
+            random_state=42,
+        )
+    else:
+        print("Loading model with Unsloth...")
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name='./models/base/qwen3-0.6b',
+            max_seq_length=2048,
+            dtype=None,
+            load_in_4bit=True,
+        )
 
-    print("Preparing model for QLoRA training...")
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r=16,                      # LoRA rank
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
-                       "gate_proj", "up_proj", "down_proj"],
-        lora_alpha=16,
-        lora_dropout=0.05,
-        bias="none",
-        use_gradient_checkpointing="unsloth",
-        random_state=42,
-    )
+        print("Preparing model for QLoRA training...")
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=16,                      # LoRA rank
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                           "gate_proj", "up_proj", "down_proj"],
+            lora_alpha=16,
+            lora_dropout=0.05,
+            bias="none",
+            use_gradient_checkpointing="unsloth",
+            random_state=42,
+        )
 
     if torch.cuda.is_available():
         print(f"VRAM after model prep: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
@@ -81,8 +109,8 @@ def main():
         gradient_accumulation_steps=4,    # Effective batch size = 4
         warmup_steps=10,
         max_steps=args.max_steps if args.max_steps else -1,
-        num_train_epochs=3.0 if not args.max_steps else 1.0,
-        learning_rate=2e-4,
+        num_train_epochs=args.num_train_epochs if not args.max_steps else 1.0,
+        learning_rate=args.learning_rate,
         fp16=not torch.cuda.is_bf16_supported(),
         bf16=torch.cuda.is_bf16_supported(),
         logging_steps=1,

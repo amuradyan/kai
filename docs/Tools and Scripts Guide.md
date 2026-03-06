@@ -121,13 +121,13 @@ python scripts/dataset/create_phase1_subset.py \
 **Usage:**
 
 ```bash
-# Default (synthetic dataset - deprecated)
+# Default (returns dataset)
 python scripts/dataset/format_for_training.py
 
-# For returns dataset
+# Custom input/output
 python scripts/dataset/format_for_training.py \
-    --input dataset/processed/returns_dataset.jsonl \
-    --output dataset/processed/returns_training
+    --input dataset/processed/phase1_dataset.jsonl \
+    --output dataset/processed/phase1_training
 ```
 
 **When to use:** After generating or modifying the dataset, before training.

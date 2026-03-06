@@ -13,7 +13,7 @@ The project now includes a two-phase curriculum training approach to solve the v
 **Model:** Qwen3-0.6B (600M parameters)
 **Target:** RISC-V 64-bit binaries
 **Training:** QLoRA (4-bit quantization) on 8GB GPU
-**Dataset:** Synthetic programs compiled to RISC-V binaries (initial implementation uses C)
+**Dataset:** Minimal static RISC-V binaries (returns 1-10000)
 
 ## Quick Start
 
@@ -28,15 +28,15 @@ source .venv/bin/activate
 # 2. Download the base model (runs in background)
 python scripts/setup/download_base_model.py &
 
-# 3. Generate training dataset (2,500 examples)
-python scripts/dataset/generate_synthetic_dataset.py
+# 3. Generate training dataset (10,000 examples)
+python scripts/dataset/generate_returns_dataset.py
 
 # 4. Format dataset for training
 python scripts/dataset/format_for_training.py
 
 # 5. Train the model
 ./kai train --test  # Test mode: 10 examples, 10 steps
-./kai train         # Full training: 2,500 examples, 3 epochs
+./kai train         # Full training: 10,000 examples, 3 epochs
 ```
 
 **Using the Kai CLI:**
@@ -126,29 +126,20 @@ If using NixOS with direnv, the environment activates automatically when you `cd
 
 ### Generate Training Data
 
-The model learns from pairs: natural language prompts and their corresponding RISC-V binaries. We generate these synthetically by creating simple programs and compiling them to machine code.
+The model learns from pairs: natural language prompts and their corresponding RISC-V binaries. We use minimal static binaries that directly use syscalls without libc.
 
 ```bash
-python scripts/dataset/generate_synthetic_dataset.py
+python scripts/dataset/generate_returns_dataset.py
 ```
 
-This creates 2,500 examples across five complexity levels:
+This creates 10,000 minimal static binaries that return values from 1 to 10,000:
 
-- **Constants** (500): `return 42;`
-- **Arithmetic** (500): `return 5 + 3;`
-- **Variables** (500): `int x = 100; return x;`
-- **Conditionals** (500): `if (a > b) return 1; else return 0;`
-- **Loops** (500): `for (int i = 0; i < N; i++) sum += i;`
+- Each binary is ~848 bytes (compared to 8KB+ for dynamically-linked binaries)
+- Uses direct syscalls: `li a7, 93` (exit syscall) and `li a0, N` (return value)
+- No libc dependency, no dynamic linking overhead
+- Focused dataset for learning value encoding
 
-Each example is compiled to RISC-V with `riscv64-unknown-linux-gnu-gcc`, producing both the binary (hex-encoded) and assembly listing. The dataset is saved to `dataset/processed/synthetic_dataset.jsonl` (~10MB). The initial implementation generates C programs, but the approach is language-agnostic—any compiled language could be used.
-
-**Verify the dataset:**
-
-```bash
-python scripts/dataset/verify_dataset.py
-```
-
-Checks for duplicate prompts, source code conflicts, and data format validity.
+Each binary is assembled directly to RISC-V machine code, producing both the binary (hex-encoded) and assembly listing. The dataset is saved to `dataset/processed/returns_dataset.jsonl` (~21MB).
 
 **Test binary execution:**
 
@@ -176,7 +167,7 @@ This converts the JSONL dataset to Hugging Face format with instruction/response
 ./kai train --test
 ```
 
-**Run full training (2,500 examples, ~2-3 hours):**
+**Run full training (10,000 examples, ~2-3 hours):**
 
 ```bash
 ./kai train
@@ -204,35 +195,38 @@ echo $?  # Should output 30
 ```plaintext
 kai/
 ├── dataset/
-│   ├── raw/              # External C code sources (future)
+│   ├── raw/              # External datasets (future)
 │   └── processed/        # Generated training data (JSONL)
 │
 ├── models/
 │   ├── base/             # Qwen3-0.6B base model
-│   └── checkpoints/      # Training checkpoints (future)
+│   └── checkpoints/      # Training checkpoints
 │
 ├── scripts/
 │   ├── setup/
 │   │   ├── download_base_model.py
 │   │   └── install_dependencies.sh
 │   ├── dataset/
-│   │   ├── generate_synthetic_dataset.py
-│   │   ├── verify_dataset.py
+│   │   ├── generate_returns_dataset.py   # Generate minimal static binaries
 │   │   ├── format_for_training.py
 │   │   ├── create_phase1_subset.py      # Curriculum training
-│   │   ├── test_binary.py
+│   │   ├── test_minimal_binaries.py      # Test binaries with QEMU
 │   │   └── verify_binaries_qemu.py
 │   ├── training/
 │   │   └── train_model.py                # Now supports --from-checkpoint
 │   ├── generation/
-│   │   ├── generate_binary.py
-│   │   └── test_generation.sh
-│   └── evaluation/
-│       ├── test_with_fixed_footer.py     # Quick test incomplete output
-│       └── validate_checkpoint.py         # Phase 1/2 gate
+│   │   └── generate_binary.py
+│   ├── evaluation/
+│   │   ├── analyze_elf_structure.py       # Annotate binary with ELF info
+│   │   ├── analyze_failures.py            # Analyze failure patterns
+│   │   ├── compare_output.py              # Compare generated vs expected
+│   │   ├── evaluate_model.py              # Systematic evaluation
+│   │   ├── test_with_fixed_footer.py     # Quick test incomplete output
+│   │   └── validate_checkpoint.py         # Phase 1/2 gate
+│   └── utils/
+│       └── hex_to_binary.py               # Convert hex to executable
 │
 ├── configs/              # Training configurations (future)
-├── evaluation/           # Evaluation scripts (future)
 │
 ├── .envrc                # Direnv automation
 ├── shell.nix             # Nix environment declaration
@@ -269,10 +263,10 @@ RISC-V is a natural starting point for teaching models to generate machine code:
 
 ## Technical Approach
 
-1. **Synthetic data generation** - Create diverse programs, compile to RISC-V
-2. **Instruction tuning** - Format as prompt → binary pairs
-3. **QLoRA fine-tuning** - Efficient 4-bit training with LoRA adapters
-4. **Deterministic generation** - Temperature 0, greedy decoding (binaries must be exact)
+1. **Minimal static binaries** - Generate ~848 byte binaries with direct syscalls (no libc)
+2. **Focused dataset** - 10,000 examples returning values 1-10000
+3. **Curriculum training** - Two-phase approach to teach value encoding
+4. **QLoRA fine-tuning** - Efficient 4-bit training with LoRA adapters
 5. **Validation** - Execute generated binaries on QEMU, verify correctness
 
 See `notes/Setup and Dataset Generation.md` for detailed technical log.

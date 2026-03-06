@@ -169,7 +169,7 @@ def main():
     if not checkpoint_path.exists():
         print(f"❌ Model not found: {args.checkpoint}")
         print("\nHave you trained the model yet?")
-        print("Run: python scripts/train.py")
+        print("Run: ./kai train")
         sys.exit(1)
 
     # Load model
