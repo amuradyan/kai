@@ -65,7 +65,7 @@ python scripts/dataset/generate_returns_dataset.py
 **Output:**
 
 - `returns_dataset.jsonl` (~21MB, 10K examples)
-- Each example: prompt, binary_hex, assembly, metadata
+- Each example contains: prompt, binary_hex
 
 **Time:** ~10 minutes for 10K examples
 
@@ -139,7 +139,7 @@ python scripts/dataset/format_for_training.py \
 
 ---
 
-### `scripts/dataset/test_minimal_binaries.py`
+### `scripts/dataset/verify_returns_dataset.py`
 
 **Purpose:** Validate that generated binaries execute correctly.
 
@@ -147,19 +147,23 @@ python scripts/dataset/format_for_training.py \
 
 - Tests binaries with QEMU user-mode emulation
 - Verifies exit codes match expected values
-- Shows progress bar and timing statistics
+- Extracts expected value directly from prompt
+- Works with simplified dataset format (prompt + binary_hex only)
 
 **Usage:**
 
 ```bash
-# Test 50 random samples (default)
-python scripts/dataset/test_minimal_binaries.py
+# Test 100 evenly-spaced samples (default)
+python scripts/dataset/verify_returns_dataset.py
 
 # Test specific number
-python scripts/dataset/test_minimal_binaries.py -n 100
+python scripts/dataset/verify_returns_dataset.py -n 50
 
 # Test all 10,000 binaries
-python scripts/dataset/test_minimal_binaries.py --all
+python scripts/dataset/verify_returns_dataset.py -n 0
+
+# Test custom dataset
+python scripts/dataset/verify_returns_dataset.py --dataset dataset/processed/phase1_dataset.jsonl
 ```
 
 **When to use:**
@@ -167,8 +171,9 @@ python scripts/dataset/test_minimal_binaries.py --all
 - After generating dataset (quality check)
 - Debugging binary generation issues
 - Verifying QEMU setup
+- Testing Phase 1 curriculum dataset
 
-**Output:** Pass/fail rate, timing, failure details
+**Output:** Pass/fail statistics with per-test results
 
 ---
 
@@ -559,7 +564,7 @@ echo $?  # Check exit code
 python scripts/dataset/generate_returns_dataset.py
 
 # 2. Validate dataset
-python scripts/dataset/test_minimal_binaries.py --all
+python scripts/dataset/verify_returns_dataset.py -n 0  # Test all
 
 # 3. Format for training
 python scripts/dataset/format_for_training.py \

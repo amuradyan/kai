@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Verify RISC-V binaries from the dataset using QEMU emulation.
+DEPRECATED: This script expects the old dataset format with category/source_code fields.
+Use scripts/dataset/verify_returns_dataset.py instead for the simplified dataset format.
 
+Original purpose: Verify RISC-V binaries from the dataset using QEMU emulation.
 Extracts binaries from the dataset and runs them with qemu-riscv64
 to verify they execute correctly and produce expected return codes.
 """
@@ -100,76 +102,18 @@ def run_binary(qemu_path: str, binary_hex: str) -> Dict:
             }
 
 
-def compute_expected_return(category: str, source_code: str) -> Optional[int]:
+def compute_expected_return(prompt: str) -> Optional[int]:
     """
-    Compute expected return code from source code.
+    Compute expected return code from prompt.
 
     Note: Shell return codes are limited to 0-255, so we take modulo 256.
     """
     try:
-        if category == "constant":
-            # Extract: int main() { return 7921; }
-            value = int(source_code.split("return")[1].split(";")[0].strip())
+        # Extract value from prompt: "Write a program that returns N"
+        if "returns" in prompt:
+            value = int(prompt.split("returns")[-1].strip())
             return value % 256
-
-        elif category == "arithmetic":
-            # Extract: int main() { return 5 + 3; }
-            expr = source_code.split("return")[1].split(";")[0].strip()
-            # Replace / with // for integer division (C behavior)
-            expr = expr.replace('/', '//')
-            value = eval(expr)  # Safe here since we control the source
-            return value % 256
-
-        elif category == "variable":
-            # Extract: int main() { int x = 100; return x; }
-            parts = source_code.split("=")
-            if len(parts) >= 2:
-                value = int(parts[1].split(";")[0].strip())
-                return value % 256
-
-        elif category == "conditional":
-            # Extract: if (a > b) return 1; else return 0;
-            # We need to evaluate the condition
-            if_part = source_code.split("if")[1].split(")")[0].strip().lstrip("(")
-
-            # Parse condition like "10 > 5"
-            # Check compound operators (>=, <=) before simple ones (>, <)
-            for op in [">=", "<=", "==", "!=", ">", "<"]:
-                if op in if_part:
-                    left, right = if_part.split(op)
-                    left_val = int(left.strip())
-                    right_val = int(right.strip())
-
-                    # Evaluate condition
-                    condition = False
-                    if op == ">":
-                        condition = left_val > right_val
-                    elif op == "<":
-                        condition = left_val < right_val
-                    elif op == ">=":
-                        condition = left_val >= right_val
-                    elif op == "<=":
-                        condition = left_val <= right_val
-                    elif op == "==":
-                        condition = left_val == right_val
-                    elif op == "!=":
-                        condition = left_val != right_val
-
-                    # Extract return values
-                    true_val = int(source_code.split("return")[1].split(";")[0].strip())
-                    false_val = int(source_code.split("return")[2].split(";")[0].strip())
-
-                    return (true_val if condition else false_val) % 256
-
-        elif category == "loop":
-            # Extract: for (int i = 0; i < N; i++) sum += i;
-            # Sum from 0 to N-1 = N*(N-1)/2
-            limit_str = source_code.split("i <")[1].split(";")[0].strip()
-            limit = int(limit_str)
-            total = (limit * (limit - 1)) // 2
-            return total % 256
-
-    except Exception as e:
+    except Exception:
         # If parsing fails, we can't verify
         return None
 

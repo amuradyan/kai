@@ -13,7 +13,7 @@ The project now includes a two-phase curriculum training approach to solve the v
 **Model:** Qwen3-0.6B (600M parameters)
 **Target:** RISC-V 64-bit binaries
 **Training:** QLoRA (4-bit quantization) on 8GB GPU
-**Dataset:** Minimal static RISC-V binaries (returns 1-10000)
+**Dataset:** 10,000 minimal static RISC-V binaries (prompt → hex format)
 
 ## Quick Start
 

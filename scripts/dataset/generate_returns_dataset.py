@@ -5,7 +5,6 @@ Creates 10,000 examples of programs that return numbers 1-10000.
 Uses static linking with nostdlib to create minimal binaries (~500 bytes vs 8KB).
 """
 
-import hashlib
 import json
 import subprocess
 import tempfile
@@ -14,7 +13,7 @@ from pathlib import Path
 from tqdm import tqdm
 
 
-def generate_minimal_binary(return_value: int) -> tuple[bytes, str]:
+def generate_minimal_binary(return_value: int) -> bytes:
     """Generate a minimal statically-linked RISC-V binary.
 
     Uses -static -nostdlib to avoid dynamic linking overhead.
@@ -24,7 +23,7 @@ def generate_minimal_binary(return_value: int) -> tuple[bytes, str]:
         return_value: Integer to return (0-255 for valid exit codes)
 
     Returns:
-        Tuple of (binary_bytes, assembly_listing)
+        binary_bytes: The compiled binary as bytes
     """
     # Write minimal C program with custom _start
     # Exit syscall number for RISC-V is 93
@@ -77,19 +76,10 @@ void _start() {{
             "-o", str(binary_file)
         ], check=True, capture_output=True)
 
-        # Generate assembly listing
-        with open(asm_file, 'w') as f:
-            subprocess.run([
-                "riscv64-unknown-linux-gnu-objdump",
-                "-d",
-                str(binary_file)
-            ], check=True, stdout=f, stderr=subprocess.PIPE, text=True)
-
         # Read results
         binary_bytes = binary_file.read_bytes()
-        assembly = asm_file.read_text()
 
-        return binary_bytes, assembly
+        return binary_bytes
 
 
 def main():
@@ -104,18 +94,13 @@ def main():
     for i in tqdm(range(1, 10001), desc="Generating binaries", unit=" binary"):
         try:
             # Generate binary
-            binary_bytes, assembly = generate_minimal_binary(i)
+            binary_bytes = generate_minimal_binary(i)
             binary_hex = binary_bytes.hex()
 
-            # Create example
+            # Create example - only keep essential fields
             example = {
-                "id": hashlib.md5(f"return_{i}".encode()).hexdigest()[:8],
-                "category": "return",
                 "prompt": f"Write a program that returns {i}",
-                "source_code": f"void _start() {{ /* syscall exit({i}) */ }}",
-                "binary_hex": binary_hex,
-                "assembly": assembly,
-                "binary_size": len(binary_bytes)
+                "binary_hex": binary_hex
             }
 
             examples.append(example)
@@ -133,7 +118,7 @@ def main():
     print(f"📁 Saved to: {output_file}")
 
     # Statistics
-    sizes = [ex['binary_size'] for ex in examples]
+    sizes = [len(ex['binary_hex']) // 2 for ex in examples]
     avg_size = sum(sizes) / len(sizes)
     min_size = min(sizes)
     max_size = max(sizes)
@@ -147,7 +132,7 @@ def main():
     # Show first example
     print(f"\nFirst example:")
     print(f"  Prompt: {examples[0]['prompt']}")
-    print(f"  Binary size: {examples[0]['binary_size']} bytes")
+    print(f"  Binary size: {len(examples[0]['binary_hex']) // 2} bytes")
     print(f"  Hex (first 100 chars): {examples[0]['binary_hex'][:100]}...")
 
 
