@@ -176,3 +176,171 @@ Phase 1 trains on roughly 100 examples — 50 small values (1–31, RVC compress
 Phase 2 continues from the phase 1 checkpoint on the full 10,000 example dataset, 5–7 epochs at 5e-5 learning rate. The lower learning rate is important — the goal is generalization, not overwriting what phase 1 taught.
 
 The assembly field in the dataset will not be used as training input. Output stays as one hex blob. The approach bets on curriculum structure rather than richer intermediate representations.
+
+---
+
+## Phase 1 Curriculum Training Results
+
+Ran Phase 1 training to teach value encoding mechanic.
+
+**Experiment settings:**
+
+- Dataset: 80 examples (values 1-31 small, various large up to 10000)
+- Excluded values: 15, 750 (held out for validation)
+- Learning rate: 1e-4
+- Epochs: 40 (800 steps total)
+- Batch size: 1, gradient accumulation: 4
+
+**Results with prompt "Write a program that returns 50":**
+
+Model output:
+
+- Generated 922 hex chars (stops at same position as before)
+- Instruction at code section: `9308d0051305806b73000000`
+- Then filled with zeros for remaining ~3179 chars
+
+With footer fix applied:
+
+- Exit code: **184**
+- Expected: **50**
+
+**Observation:**
+
+Model learned ELF structure through code section but consistently stops at position 922. Never generates footer sections (`.comment`, `.riscv.attributes`, section headers). The generation stops at exact same point as previous experiments - after the `.text` section code. Model outputs zeros for the remainder instead of continuing with ELF structure.
+
+---
+
+## Investigating the 922-char Stop Point
+
+### Investigation Steps
+
+**1. Checked if position 922 coincides with cut marker:**
+
+- Cut marker `6d6d656e74002e72697363762e61747472696275746573` (hex for "mment.riscv.attributes")
+- Found marker starts at position 876 in hex string
+- Marker is 46 chars long
+- 876 + 46 = **922** - exact stop position!
+
+**2. Suspected training data corruption:**
+
+- Checked if binary_hex strings were broken at newlines
+- Verified JSONL has complete 1696-char hex strings on single lines
+- Checked `format_for_training.py` - passes hex through as-is, no decoding
+- Training data is clean
+
+**3. Looked for `0a` byte (newline) issues:**
+
+- Found `0a` byte exists in binary but as legitimate hex chars "0a"
+- Not causing line breaks in training data
+- Position 922 follows `.riscv.attributes` string, not the `0a` byte
+
+**4. Checked max_tokens setting:**
+
+- `generate_binary.py` defaults to `max_new_tokens=4096`
+- Not a token limit issue
+
+**5. Found the culprit - `early_stopping=True`:**
+
+- Generation config had `early_stopping=True`
+- Model likely generates EOS token `<|im_end|>` at position 922
+- EOS token ID: 151645 for Qwen tokenizer
+- Early stopping causes immediate return with zero padding
+
+### Root Cause Analysis
+
+Model learned position 922 (end of `.riscv.attributes`) as acceptable stopping point because:
+
+1. Footer is mostly zeros/padding (low entropy, easy to predict)
+2. Loss landscape gives good scores even for early stopping
+3. `.riscv.attributes` looks like semantic boundary
+4. Model learned this is where sequences "can" end
+
+### Fix Applied
+
+Changed `scripts/generation/generate_binary.py` line 86:
+
+- From: `early_stopping=True`
+- To: `early_stopping=False`
+
+This forces generation to continue even after EOS token, up to max_new_tokens limit. We'll see how it goes.
+
+---
+
+## Analysis of Position 922 Stop Point
+
+The investigation revealed why the model consistently stops at position 922:
+
+### Pattern Recognition Problem
+
+Position 922 marks the end of `.riscv.attributes` section - a natural semantic boundary. The model learned this as a valid completion point during training.
+
+### Loss Gradient Issue
+
+The footer (positions 922-1696) consists of:
+- Section headers (384 bytes)
+- Mostly zeros and padding
+- Low information density
+
+During training, the model achieved good loss scores even when truncating at 922. The remaining ~774 characters contribute minimal loss penalty, creating weak gradient signal to continue.
+
+### EOS Token Placement
+
+The model learned to generate EOS token `<|im_end|>` (ID: 151645) at position 922:
+- Treats cut marker boundary as sequence end
+- With `early_stopping=True`, generation halts immediately
+- Model wasn't failing - it was successfully placing EOS where it learned sequences could end
+
+### Why This Specific Position
+
+The cut marker ending at 922 created perfect conditions:
+- Readable string boundary (unlike raw binary)
+- Precedes low-entropy section
+- Training loss rewarded early completion
+
+### The Early Stopping Mechanism
+
+`early_stopping` parameter controls EOS behavior:
+- **True**: Stops at first EOS token
+- **False**: Continues to `max_new_tokens` limit
+
+Setting to False forces continuation past EOS. However, this may reveal secondary issue: model might output zeros or garbage after 922 if footer structure wasn't learned.
+
+### Implications
+
+The fix addresses the mechanical stopping but not necessarily the underlying learning problem. The model needs stronger signal to learn footer importance. Testing with `early_stopping=False` will show whether model:
+- Generates meaningful footer content
+- Or just produces padding/zeros when forced to continue
+
+---
+
+## Test Results with early_stopping=False
+
+Ran generation with the fix applied on prompt "Write a program that returns 50".
+
+**Command:**
+```bash
+python scripts/evaluation/test_with_fixed_footer.py test_50_no_early_stop.raw.raw
+```
+
+**Results:**
+```
+Model output: 922 hex chars
+Footer added: 774 hex chars
+Total binary: 848 bytes
+Exit code: 100
+```
+
+**Analysis of raw output:**
+- File contains 4101 total chars (max_tokens=4096)
+- First 922 chars: valid hex up to end of `.riscv.attributes`
+- Remaining ~3179 chars: all zeros (padding to token limit)
+- Expected total: 1696 chars for complete binary
+- No actual footer structure generated
+
+**Key finding:**
+The `early_stopping=False` fix **failed**. Model still only generates 922 chars of meaningful content, then pads with zeros. The change only affected the padding behavior:
+- With `early_stopping=True`: stops at 922
+- With `early_stopping=False`: continues to max_tokens but only outputs zeros
+
+**Root problem remains:**
+The model has learned that meaningful content ends at position 922. It never learned to generate the footer section. The footer in training data has such low entropy (mostly zeros) that the model treats it as optional padding rather than essential structure
