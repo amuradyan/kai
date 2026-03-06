@@ -96,6 +96,7 @@ Program headers describe segments loaded into memory. There are 3 headers, each 
 ### Program Header Structure
 
 Each header has:
+
 - Bytes 0-3: Type (PT_LOAD, PT_GNU_STACK, etc.)
 - Bytes 4-7: Flags (Read/Write/Execute permissions)
 - Bytes 8-15: Offset in file
@@ -182,6 +183,7 @@ This is RISC-V machine code - the entire program:
 3. Execute syscall
 
 Instruction encoding:
+
 - `li a7, 93` = `05d00893` → stored as `93 08 d0 05` (little-endian)
 - `li a0, 42` = `02a00513` → stored as `13 05 a0 02`
 - `ecall` = `00000073` → stored as `73 00 00 00`
@@ -227,10 +229,12 @@ Null-terminated string identifying the compiler.
 102 bytes describing RISC-V architecture features:
 
 Starts with vendor tag, then ASCII strings:
+
 - `riscv` - Architecture name
 - `rv64i2p1_m2p0_a2p1_f2p2_d2p2_c2p0_zicsr2p0_zifencei2p0_zmmul1p0_zaamo1p0_zalrsc1p0`
 
 This encodes:
+
 - `rv64i2p1` - Base 64-bit integer ISA version 2.1
 - `m2p0` - Multiply/divide extension
 - `a2p1` - Atomic instructions
@@ -372,7 +376,7 @@ f8 00 01 00 00 00 00 00 f8 00 00 00 00 00 00 00
 **Size Breakdown:**
 
 | Component | Bytes | % of Total | Purpose |
-|-----------|-------|------------|---------|
+| ----------- | ------- | ------------ | --------- |
 | ELF Header | 64 | 7.5% | File identification |
 | Program Headers | 168 | 19.8% | Memory layout |
 | **`.text` (code)** | **12** | **1.4%** | **Actual program logic** |
@@ -402,7 +406,7 @@ f8 00 01 00 00 00 00 00 f8 00 00 00 00 00 00 00
 **Comparison to Dynamic Linking:**
 
 | Aspect | Minimal Static | Dynamic Linked | Improvement |
-|--------|----------------|----------------|-------------|
+| -------- | ---------------- | ---------------- | ------------- |
 | Total size | 848 bytes | 8416 bytes | **10x smaller** |
 | Hex output | 1696 chars | 16832 chars | **10x fewer tokens** |
 | Code section | 12 bytes (1.4%) | 188 bytes (2.2%) | Simpler |
@@ -462,6 +466,7 @@ Our previous approach used dynamic linking with libc, resulting in 8416-byte bin
 ---
 
 **For complete understanding**, see also:
+
 - `docs/Minimal Static Binaries.md` - Why we use this approach
 - `scripts/dataset/generate_returns_dataset.py` - How we generate these binaries
-- ELF specification: https://refspecs.linuxfoundation.org/elf/elf.pdf
+- ELF specification: <https://refspecs.linuxfoundation.org/elf/elf.pdf>

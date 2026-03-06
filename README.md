@@ -199,7 +199,7 @@ echo $?  # Should output 30
 
 ## Project Structure
 
-```
+```plaintext
 kai/
 ├── dataset/
 │   ├── raw/              # External C code sources (future)

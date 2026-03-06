@@ -145,4 +145,34 @@ Tools like `objdump` might show wrong size, but execution is unaffected.
 
 ---
 
-_Continuing..._
+## The Long Zero Footer Problem
+
+Started by looking at the note "When the tail of the binary was all wrong." Two distinct zero-tail problems were identified that had been getting conflated.
+
+The model stops generating meaningful content around the 922-char mark — likely hitting a newline in training data or an uncertainty threshold — and then fills the rest of its token budget with approximately 3179 trailing zeros. This is a generation behavior failure, not an ELF issue.
+
+The ELF footer also contains lots of zeros, but that's legitimate: section header padding is mostly zeroed out by design. The footer isn't even uniform across binaries — it varies by one byte at offset 96 of the footer, which is the `.text` section size field. Small values (N < 32) produce a 10-byte `.text` section using the RVC compressed instruction encoding; larger values (N ≥ 32) produce 12-byte `.text` using the full 4-byte uncompressed encoding. The section header records this, hence the difference.
+
+The practical finding: QEMU doesn't validate section header metadata, so using any footer from the dataset as a replacement works fine at runtime. `objdump` would complain but execution is unaffected. A script to automate this (strip zeros, graft footer, run QEMU) was identified as missing.
+
+## Why More Data Alone Won't Fix Value Encoding
+
+The first training run used 10,000 examples over 3 epochs. The model learned ELF structure remarkably well — correct magic bytes, entry point, program headers, syscall sequence — but generated the wrong immediate value (145 instead of 42).
+
+The problem is that the mapping from the text token "42" to the bytes `02 a0` in the immediate field of `addi` is a precise arithmetic transformation. It's buried in 1696 hex chars of mostly-static output with no direct supervision signal pointing at it. More examples of the same structure give more of the same weak signal. More epochs on existing data, or a stronger learning signal, is what's actually needed.
+
+## Teaching Abstractions
+
+The question came up: would framing the model as a compiler, or teaching it ELF and RISC-V explicitly, help? The framing idea is reasonable — Qwen3 almost certainly saw RISC-V ISA specs and ELF documentation during pretraining, and a system prompt framing could activate that knowledge. But it doesn't solve the core problem. The task isn't to *reason* about encoding, it's to *generate* exact hex bytes token by token. Understanding the format doesn't give you mechanical precision in sequence generation.
+
+Breaking the hex into three parts (header / code / footer) in the dataset was considered. It would give a much cleaner signal by isolating the value-encoding problem to a tiny sequence. But since the output needs to stay as one blob, it would mean using segmented format only as a training supervision signal, which complicates the setup. Deferred for now.
+
+## Curriculum Learning Plan
+
+The approach settled on: two-phase curriculum training.
+
+Phase 1 trains on roughly 100 examples — 50 small values (1–31, RVC compressed) and 50 large values (≥32, spread across the range). The goal is to teach the encoding mechanic in isolation before introducing the full complexity. Small and large values must both be covered because they produce structurally different binaries with different footers. 20–30 epochs at 1e-4 learning rate. Before proceeding to phase 2, the model is tested on held-out values it hasn't seen — if it gets both a small and large unseen value correct, the mechanic has transferred.
+
+Phase 2 continues from the phase 1 checkpoint on the full 10,000 example dataset, 5–7 epochs at 5e-5 learning rate. The lower learning rate is important — the goal is generalization, not overwriting what phase 1 taught.
+
+The assembly field in the dataset will not be used as training input. Output stays as one hex blob. The approach bets on curriculum structure rather than richer intermediate representations.
