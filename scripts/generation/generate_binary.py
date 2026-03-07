@@ -9,6 +9,7 @@ from pathlib import Path
 
 import torch
 from unsloth import FastLanguageModel
+from peft import PeftModel
 
 # Suppress transformers deprecation warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
@@ -21,19 +22,42 @@ def load_model(checkpoint_path: str, max_seq_length: int = 2048):
     """Load the fine-tuned model from checkpoint."""
     print(f"Loading model from {checkpoint_path}...")
 
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=checkpoint_path,
+    # Load the adapter config to get the base model path
+    import json
+    with open(f"{checkpoint_path}/adapter_config.json", "r") as f:
+        adapter_config = json.load(f)
+
+    base_model_path = adapter_config.get("base_model_name_or_path", "./models/base/qwen3-0.6b")
+    print(f"Loading from base model: {base_model_path}")
+
+    # First load the base model
+    model, _ = FastLanguageModel.from_pretrained(
+        model_name=base_model_path,
         max_seq_length=max_seq_length,
         dtype=None,
         load_in_4bit=True,
     )
 
-    # Add END_BINARY special token if not already present
-    if '<END_BINARY>' not in tokenizer.get_vocab():
-        special_tokens_dict = {'additional_special_tokens': ['<END_BINARY>']}
-        num_added_toks = tokenizer.add_special_tokens(special_tokens_dict)
-        model.resize_token_embeddings(len(tokenizer))
-        print(f"Added {num_added_toks} special tokens for generation")
+    # Load the tokenizer from checkpoint (which has the END_BINARY token)
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
+    print(f"Tokenizer vocab size: {len(tokenizer)}")
+
+    # Resize model embeddings to match the tokenizer
+    model.resize_token_embeddings(len(tokenizer))
+
+    # Now load the adapter weights
+    model = PeftModel.from_pretrained(
+        model,
+        checkpoint_path,
+        is_trainable=False,
+    )
+
+    # Check if END_BINARY token is in the tokenizer
+    if '<END_BINARY>' in tokenizer.get_vocab():
+        print("✓ END_BINARY token found in checkpoint")
+    else:
+        print("Warning: END_BINARY token not found. This checkpoint may not support END_BINARY.")
 
     # Enable inference mode (faster, no grad)
     FastLanguageModel.for_inference(model)
