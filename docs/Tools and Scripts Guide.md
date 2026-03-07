@@ -77,7 +77,7 @@ python scripts/dataset/generate_returns_dataset.py
 
 **What it does:**
 
-- Generates 81 carefully selected examples
+- Generates 83 carefully selected examples
 - 30 small values (1-31, except 15): compressed RISC-V instructions
 - 51 large values (32-10000, except 750): uncompressed instructions
 - Automatically includes `<END_BINARY>` token
@@ -266,6 +266,40 @@ The script includes `NonZeroWeightedTrainer` class that:
 **Time:** ~3 hours for full training (GPU-dependent)
 
 **Resources:** ~3.2GB VRAM peak with 4-bit quantization
+
+---
+
+### `scripts/training/train_dynamic_weighted.py` ⚠️ EXPERIMENTAL - FAILED
+
+**Purpose:** Experimental dynamic weighting approach (footer 100x, regular 2x).
+
+**Status:** ❌ FAILED - Causes catastrophic forgetting
+
+**What happened:**
+- Attempted to use extreme weights (100x) for footer non-zeros
+- Model completely forgot hex generation
+- Outputs Python code instead
+
+**DO NOT USE** - Checkpoint at `models/checkpoints/dynamic-weighted` is broken.
+
+See `docs/Experiments and Results.md` for failure analysis.
+
+---
+
+### `scripts/training/train_progressive_weighted.py` ⚠️ EXPERIMENTAL - FAILED
+
+**Purpose:** Experimental progressive weighting (1x→5x gradient).
+
+**Status:** ❌ FAILED - Worse than dynamic, causes repetitive collapse
+
+**What happened:**
+- Attempted gradual weight increase based on position
+- Model forgot hex generation AND entered repetitive loop
+- Outputs Python code then repeats same text 272 times
+
+**DO NOT USE** - Checkpoint at `models/checkpoints/progressive-weighted` is broken.
+
+See `docs/Experiments and Results.md` for failure analysis.
 
 ---
 
