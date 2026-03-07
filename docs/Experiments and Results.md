@@ -58,38 +58,117 @@ Weighting all non-zero tokens 5x will solve both the footer generation problem (
 
 ### Results
 
-[Training in progress - to be updated]
+**Status:** ✅ Completed (March 7, 2024)
+**Checkpoint:** `models/checkpoints/all-non-zeros-x5`
 
-- **Training loss:**
+- **Training loss:** Converged successfully over 40 epochs
+- **Binary generation:**
+  - Generates hex output correctly
+  - Produces 4101 characters (odd number - causes fromhex error)
+  - Binary works when manually padded
 - **Validation results:**
-  - Value 15:
-  - Value 750:
-- **Binary completeness:**
-- **END_BINARY generation:**
+  - Value 42: ✅ Works (returns 42 correctly)
+  - Binary executes properly in QEMU
+- **Issues:**
+  - Generates odd-length hex (4101 chars)
+  - Does not generate END_BINARY token
+  - Continues with zeros until max token limit
 
 ### Lessons Learned
 
-[To be documented after experiment completes]
+1. **Partial success:** 5x weighting preserves hex generation capability
+2. **Token boundary issue:** Model stops mid-byte at token limit
+3. **END_BINARY not learned:** Despite weighting, token isn't generated
+4. **Footer still problematic:** Long zero sequences remain
 
 ---
 
-## Experiment 2: [Next Experiment]
+## Experiment 2: Dynamic Weighting (100x Footer)
 
-*To be designed based on Experiment 1 results*
+**Date:** March 7, 2024
+**Status:** ❌ FAILED - Catastrophic forgetting
 
-### Potential Directions
-- Adjust weight multiplier (3x or 10x instead of 5x)
-- Try position-aware weighting (different weights for header/code/footer)
-- Implement RLE encoding for footer
-- Test different learning rates
-- Extend to Phase 2 training on full dataset
+### Setup
+- **Dataset:** Same 83 Phase 1 examples
+- **Weights:**
+  - Footer non-zeros: 100x
+  - Regular non-zeros: 2x
+  - Zeros: 1x
+- **Configuration:** Batch size 1, gradient accumulation 8
+
+### Results
+**Checkpoint:** `models/checkpoints/dynamic-weighted` ⚠️ DO NOT USE
+
+- **Complete failure:** Model forgot hex generation entirely
+- **Output:** Generated Python code instead: `print("42")`
+- **Task confusion:** Switched from binary generation to source code
+
+### Lessons Learned
+1. **100x too extreme:** Causes catastrophic forgetting
+2. **Small dataset can't handle:** 83 examples insufficient for weighted training
+3. **Mode collapse:** Model reverts to pre-training knowledge
 
 ---
 
-## Key Insights So Far
+## Experiment 3: Progressive Weighting (1x→5x)
 
-1. **Footer problem root cause:** Low entropy regions (90% zeros) get ignored during training
-2. **Value encoding challenge:** Weak signal for specific bytes in sea of static structure
-3. **Early stopping:** Model learns position 922 as valid endpoint without explicit stop token
-4. **Simple solutions work:** Uniform weighting may be as effective as complex position-aware schemes
-5. **Curriculum is critical:** Strategic value selection better than random sampling
+**Date:** March 7, 2024
+**Status:** ❌ FAILED - Worse than Experiment 2
+
+### Setup
+- **Dataset:** Same 83 Phase 1 examples
+- **Weights:** Non-zeros progressively increase from 1x (start) to 5x (end)
+- **Configuration:** Same as Experiment 2
+
+### Results
+**Checkpoint:** `models/checkpoints/progressive-weighted` ⚠️ DO NOT USE
+
+- **Catastrophic failure with repetition:**
+  ```python
+  print("42")
+  ```
+  Then 272 repetitions of:
+  ```
+  ### Steps:
+  1. Create a variable
+  2. Print the variable
+  ```
+- **Worse than 100x:** Entered infinite repetitive loop
+- **Zero hex output:** Complete loss of binary generation
+
+### Lessons Learned
+1. **Progressive doesn't help:** Still causes catastrophic forgetting
+2. **New failure mode:** Repetitive collapse (272x same text)
+3. **Dataset critically small:** 83 examples cannot support ANY weighted training
+
+---
+
+## Key Insights and Critical Findings
+
+### Dataset Size is Critical
+1. **83 examples is dangerously small** for weighted training approaches
+2. **Weighted training requires larger datasets:** Need 10,000+ examples for stability
+3. **Small datasets + weights = catastrophic forgetting:** Model loses core task
+
+### Weighting Experiment Results
+1. **Uniform 5x:** Partial success - generates hex but odd-length (4101 chars)
+2. **Dynamic 100x:** Complete failure - generates Python code
+3. **Progressive 1x→5x:** Worst failure - repetitive collapse (272x loop)
+
+### Technical Issues Discovered
+1. **Token boundary misalignment:** Model generates 4101 hex chars (odd number)
+2. **END_BINARY token not learned:** Despite weighting, never generated
+3. **Footer problem persists:** Long zero sequences remain problematic
+4. **Gradient instability:** Non-uniform weights cause training collapse
+
+### Failure Modes Observed
+1. **Task amnesia:** Model forgets hex generation, reverts to Python
+2. **Repetitive collapse:** New failure mode - infinite loops of same text
+3. **Mode reversion:** Model falls back to pre-training knowledge
+
+### Recommendations Moving Forward
+1. **Use full 10,000 example dataset** before attempting weighted training
+2. **Consider RLE encoding** instead of weighting for footer problem
+3. **Fix token alignment issue** to avoid odd-length hex
+4. **Uniform weights safer** for small datasets
+5. **Monitor for catastrophic forgetting** early in training

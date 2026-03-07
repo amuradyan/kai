@@ -88,7 +88,7 @@ def main():
     output_file = Path("dataset/processed/phase1_dataset.jsonl")
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Strategic Phase 1 values - 81 total examples
+    # Strategic Phase 1 values - 83 total examples
     # Small values (1-31) for compressed instructions - 30 examples (excluding 15)
     phase1_values = list(range(1, 32))
 

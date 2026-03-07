@@ -62,9 +62,11 @@ python scripts/dataset/generate_returns_dataset.py  # For full dataset
 **Problem:** Model generates structurally correct binary but with wrong return value.
 
 **Solution:**
-1. Use weighted loss to emphasize non-zero value bytes
+1. Use weighted loss to emphasize non-zero value bytes (but see warning below)
 2. Train with curriculum approach (Phase 1 focused examples)
 3. Ensure sufficient epochs for small dataset
+
+⚠️ **Warning:** Weighted training on small datasets (<1000 examples) can cause catastrophic forgetting. Use uniform weights or larger datasets.
 
 ### Generation fills with zeros after position 922
 **Problem:** Model generates meaningful content until position 922, then only zeros.
@@ -92,6 +94,42 @@ nix-shell -p qemu
 **Problem:** Generated binary runs but returns wrong value.
 
 **Solution:** This is a value encoding issue. The model needs more training with weighted loss on the value-encoding bytes.
+
+## Catastrophic Forgetting Issues
+
+### Model generates Python code instead of hex
+**Problem:** After weighted training, model outputs Python source code instead of hex-encoded binaries.
+
+**Cause:** Extreme weighting (>10x) or weighted training on small datasets (<1000 examples).
+
+**Solution:**
+1. Use larger dataset (10,000+ examples) for weighted training
+2. Reduce weight multipliers to 5x or less
+3. Use uniform weights for small datasets
+4. Retrain from base model if corrupted
+
+### Model enters repetitive loops
+**Problem:** Model generates same text pattern hundreds of times.
+
+**Example:** Repeating "### Steps: 1. Create a variable 2. Print the variable" 272 times.
+
+**Cause:** Progressive or dynamic weighting on insufficient data causes mode collapse.
+
+**Solution:**
+1. Stop training immediately if repetition detected
+2. Use uniform weights only
+3. Increase dataset size before attempting weighted approaches
+4. Model checkpoint is corrupted - start fresh
+
+### Odd-length hex output (e.g., 4101 characters)
+**Problem:** Model generates odd number of hex characters, causing fromhex() errors.
+
+**Cause:** Token boundaries don't align with byte boundaries when hitting max token limit.
+
+**Solution:**
+1. Implement proper END_BINARY token generation
+2. Handle odd-length in post-processing (pad with 0)
+3. Consider RLE encoding to reduce output length
 
 ## Memory Issues
 

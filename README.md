@@ -25,7 +25,7 @@ python -m venv .venv
 source .venv/bin/activate
 ./scripts/setup/install_dependencies.sh
 
-# 2. Generate Phase 1 dataset (81 strategic examples with END_BINARY)
+# 2. Generate Phase 1 dataset (83 strategic examples with END_BINARY)
 python scripts/dataset/generate_phase1_dataset.py
 
 # 3. Format for training
@@ -239,13 +239,15 @@ kai/
 │   │   └── install_dependencies.sh
 │   ├── dataset/
 │   │   ├── generate_returns_dataset.py      # Full 10K dataset generator
-│   │   ├── generate_phase1_dataset.py       # Phase 1 curriculum dataset (81 examples)
+│   │   ├── generate_phase1_dataset.py       # Phase 1 curriculum dataset (83 examples)
 │   │   ├── format_for_training.py
 │   │   ├── create_phase1_subset.py          # Select from full dataset
 │   │   ├── verify_returns_dataset.py        # Simplified verification for new format
 │   │   └── verify_binaries_qemu.py          # [DEPRECATED - old format]
 │   ├── training/
-│   │   └── train_model.py                # Now supports --from-checkpoint
+│   │   ├── train_model.py                # Main training script - supports --from-checkpoint
+│   │   ├── train_dynamic_weighted.py     # [EXPERIMENTAL - FAILED] 100x weighting
+│   │   └── train_progressive_weighted.py # [EXPERIMENTAL - FAILED] Progressive 1x→5x
 │   ├── generation/
 │   │   └── generate_binary.py
 │   ├── evaluation/
@@ -307,6 +309,8 @@ See `notes/Setup and Dataset Generation.md` for detailed technical log.
 
 ### Weighted Loss Training
 We discovered the model struggles with low-entropy regions (like footers with 90% zeros). Our solution: weight all non-zero tokens 5x during training, forcing the model to pay attention to information-carrying bytes.
+
+⚠️ **Critical Warning:** Weighted training on small datasets (<1000 examples) can cause catastrophic forgetting. The Phase 1 dataset (83 examples) is too small for non-uniform weights. Use the full 10,000 example dataset or uniform weights only.
 
 ### END_BINARY Token
 Added a custom `<END_BINARY>` token to explicitly mark where binaries end. This solved the early stopping problem where the model would generate only 922 characters and fill the rest with zeros.
