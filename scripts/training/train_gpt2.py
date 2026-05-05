@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Fine-tune GPT-2 small on RISC-V binary generation.
+
+Parallel to scripts/training/train_model.py. Uses plain HF transformers
++ PEFT instead of Unsloth, since Unsloth does not support GPT-2.
+"""
+
+import argparse
+import time
+import torch
+from datasets import load_from_disk
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, TaskType
+from trl import SFTTrainer, SFTConfig
+from torch import nn
+
+
+class NonZeroWeightedTrainer(SFTTrainer):
+    """Weights non-zero tokens 5x during loss computation."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        tokenizer = self.processing_class
+        self.zero_token_id = tokenizer.encode('0', add_special_tokens=False)[0]
+        end = tokenizer.encode('<END_BINARY>', add_special_tokens=False)
+        self.end_token_id = end[0] if end else None
+        print(f"Zero token ID: {self.zero_token_id}")
+        print(f"END_BINARY token ID: {self.end_token_id}")
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = outputs.get('logits')
+
+        weights = torch.ones_like(labels, dtype=torch.float)
+        non_zero = (labels != self.zero_token_id) & (labels != -100)
+        weights[non_zero] = 5.0
+        if self.end_token_id is not None:
+            weights[labels == self.end_token_id] = 5.0
+
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        shift_weights = weights[..., 1:].contiguous()
+
+        loss_fct = nn.CrossEntropyLoss(reduction='none')
+        loss = loss_fct(
+            shift_logits.view(-1, shift_logits.size(-1)),
+            shift_labels.view(-1),
+        )
+        weighted = (loss * shift_weights.view(-1)).mean()
+        return (weighted, outputs) if return_outputs else weighted
+
+
+def format_prompt(example):
+    return {
+        "text": f"### Instruction:\n{example['instruction']}\n\n### Response:\n{example['output']}"
+    }
+
+
+def main():
+    p = argparse.ArgumentParser(description="Train GPT-2 small for RISC-V binary generation")
+    p.add_argument("--test", action="store_true", help="10 examples, 10 steps")
+    p.add_argument("--max-steps", type=int, default=None)
+    p.add_argument("--num-examples", type=int, default=None)
+    p.add_argument("--dataset", default="dataset/processed/training_dataset_hf")
+    p.add_argument("--run-name", default=None)
+    p.add_argument("--learning-rate", type=float, default=2e-4)
+    p.add_argument("--num-train-epochs", type=float, default=3.0)
+    p.add_argument("--base-model", default="openai-community/gpt2",
+                   help="HF id (default: openai-community/gpt2 = 124M small)")
+    p.add_argument("--max-seq-length", type=int, default=1024,
+                   help="GPT-2 small ceiling is 1024")
+    args = p.parse_args()
+
+    if args.test:
+        args.max_steps = 10
+        args.num_examples = 10
+        print("🧪 TEST mode: 10 examples, 10 steps")
+
+    t0 = time.time()
+    print(f"[{time.time()-t0:5.1f}s] Loading {args.base_model} via HF transformers...")
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    model = AutoModelForCausalLM.from_pretrained(args.base_model, torch_dtype=dtype)
+    print(f"[{time.time()-t0:5.1f}s] Model + tokenizer loaded ({dtype})")
+
+    print(f"[{time.time()-t0:5.1f}s] Adding END_BINARY special token (before LoRA wrap)...")
+    n_added = tokenizer.add_special_tokens(
+        {"additional_special_tokens": ["<END_BINARY>"]}
+    )
+    print(f"  Added {n_added} special tokens; vocab size now {len(tokenizer)}")
+    model.resize_token_embeddings(len(tokenizer))
+
+    print(f"[{time.time()-t0:5.1f}s] Applying LoRA (targets: c_attn, c_proj, c_fc)...")
+    lora_config = LoraConfig(
+        r=16,
+        lora_alpha=16,
+        target_modules=["c_attn", "c_proj", "c_fc"],
+        lora_dropout=0.05,
+        bias="none",
+        task_type=TaskType.CAUSAL_LM,
+    )
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
+
+    if torch.cuda.is_available():
+        model = model.cuda()
+        print(f"[{time.time()-t0:5.1f}s] VRAM after model prep: "
+              f"{torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+
+    print(f"[{time.time()-t0:5.1f}s] Loading dataset from {args.dataset}...")
+    dataset = load_from_disk(args.dataset)
+    if args.num_examples:
+        dataset = dataset.select(range(args.num_examples))
+        print(f"  Limited to {args.num_examples} examples")
+    dataset = dataset.map(format_prompt, remove_columns=dataset.column_names)
+    print(f"  Dataset size: {len(dataset)}")
+    print(f"  Sample (first 200 chars): {dataset[0]['text'][:200]}...")
+
+    if args.run_name:
+        out = f"./models/checkpoints/{args.run_name}"
+    else:
+        out = (
+            "./models/checkpoints/gpt2-small-lora-test"
+            if args.test
+            else "./models/checkpoints/gpt2-small-lora"
+        )
+
+    training_args = SFTConfig(
+        output_dir=out,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=4,
+        warmup_steps=10,
+        max_steps=args.max_steps if args.max_steps else -1,
+        num_train_epochs=args.num_train_epochs if not args.max_steps else 1.0,
+        learning_rate=args.learning_rate,
+        fp16=not torch.cuda.is_bf16_supported(),
+        bf16=torch.cuda.is_bf16_supported(),
+        logging_steps=1,
+        optim="adamw_torch",
+        weight_decay=0.01,
+        lr_scheduler_type="linear",
+        seed=42,
+        save_strategy="steps" if args.test else "epoch",
+        save_steps=5 if args.test else 500,
+        report_to="none",
+        dataset_text_field="text",
+        max_length=args.max_seq_length,
+    )
+
+    print(f"[{time.time()-t0:5.1f}s] Initializing trainer with weighted loss...")
+    trainer = NonZeroWeightedTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=dataset,
+        processing_class=tokenizer,
+    )
+
+    print("\n" + "=" * 60)
+    print(f"[{time.time()-t0:5.1f}s] Starting training...")
+    print("=" * 60 + "\n")
+    trainer.train()
+    print(f"\n✅ [{time.time()-t0:5.1f}s] Training complete")
+
+    print(f"[{time.time()-t0:5.1f}s] Saving to {out}...")
+    model.save_pretrained(out)
+    tokenizer.save_pretrained(out)
+    if torch.cuda.is_available():
+        print(f"  Final VRAM: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+        print(f"  Peak reserved: {torch.cuda.max_memory_reserved(0) / 1024**3:.2f} GB")
+    print(f"\n✅ [{time.time()-t0:5.1f}s] Saved to {out}")
+
+
+if __name__ == "__main__":
+    main()
