@@ -11,7 +11,7 @@ in
 pkgs.mkShell {
   buildInputs = with pkgs; [
     # Python with development headers
-    python312Full
+    python312
     python312Packages.pip
     python312Packages.virtualenv
 
@@ -49,8 +49,8 @@ pkgs.mkShell {
     export EXTRA_LDFLAGS="-L${pkgs.gcc14.cc.lib}/lib"
 
     # Python development headers for Triton compilation
-    export C_INCLUDE_PATH=${pkgs.python312Full}/include/python3.12:''${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}
-    export CPLUS_INCLUDE_PATH=${pkgs.python312Full}/include/python3.12:''${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}
+    export C_INCLUDE_PATH=${pkgs.python312}/include/python3.12:''${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}
+    export CPLUS_INCLUDE_PATH=${pkgs.python312}/include/python3.12:''${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}
 
     # Triton + NixOS compatibility
     export TRITON_LIBCUDA_PATH=/run/opengl-driver/lib
@@ -61,7 +61,7 @@ pkgs.mkShell {
 
     echo "Nix environment loaded"
     echo "CUDA: $CUDA_HOME"
-    echo "Python headers: ${pkgs.python312Full}/include/python3.12"
+    echo "Python headers: ${pkgs.python312}/include/python3.12"
     echo "TRITON_LIBCUDA_PATH: $TRITON_LIBCUDA_PATH"
     echo "RISC-V GCC: $RISCV_GCC"
   '';

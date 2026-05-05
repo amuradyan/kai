@@ -24,6 +24,7 @@ dataset/processed/
 # Training outputs
 wandb/
 logs/
+raw/
 runs/
 install.log
 *.log
