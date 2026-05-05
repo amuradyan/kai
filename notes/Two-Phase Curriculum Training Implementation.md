@@ -430,3 +430,4 @@ python scripts/evaluation/evaluate_model.py \
 - **Minimal binaries**: `docs/Minimal Static Binaries.md`
 - **Footer investigation**: `notes/The case of long zero footers/notes.md`
 - **Curriculum rationale**: `notes/# Curriculum Training Plan for Kai.md`
+
